@@ -105,11 +105,11 @@ been exercised.
 | Operation | Method | Evidence | Status |
 | --- | --- | --- | --- |
 | Transport framing and correlation | an unknown method | Domino transport, 2026-10-29; replied `-32601` with `method not found: domino/transport-probe` | verified |
-| Handshake and capabilities | `initialize` | Re-run in this session, 2026-10-29 | verified |
+| Handshake and capabilities | `initialize` | Re-run in this session, 2026-10-29; Domino `createAcpRuntime` live test reached a successful `initialize` on 2026-10-29 | verified |
 | Session summaries | `session/list` | Re-run in this session, 2026-10-29; returned `sessionId`, `cwd`, `title`, `updatedAt` | verified |
-| Create session | `session/new` | PoC run, 2026-10-28; returned a `sessionId` | verified in the PoC, not re-run here |
+| Create session | `session/new` | PoC run, 2026-10-28; returned a `sessionId`. Domino live run, 2026-10-29, failed with a provider API key error before creating a session | PoC only; not verified through Domino |
 | Prompt and streaming | `session/prompt`, `session/update` | PoC run, 2026-10-28; text arrived through `session/update`, `stopReason: end_turn` | verified in the PoC, not re-run here |
-| Close session | `session/close` | PoC run, 2026-10-28 | verified in the PoC, not re-run here |
+| Close session | `session/close` | PoC run, 2026-10-28. Domino live run, 2026-10-29, was not reached because session creation failed | PoC only; not verified through Domino |
 | Cancel | `session/cancel` notification | PoC run, 2026-10-28; prompt ended with `stopReason: cancelled` | verified in the PoC, not re-run here |
 | Resume after process restart | `session/resume` | PoC run, 2026-10-28; a new process resumed the same `sessionId` and completed a prompt | verified in the PoC, not re-run here |
 | Load with history replay | `session/load` | PoC run, 2026-10-28; prior response was observable again, then a new prompt succeeded | verified in the PoC, not re-run here |
@@ -133,6 +133,27 @@ DOMINO_LIVE_ACP=1 npm test -- src/lib/runtime/acp/transport.live.test.ts
 
 The unknown-method reply was `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: domino/transport-probe"}}`.
 
+## Domino adapter check
+
+`createAcpRuntime` performed the Domino handshake path against the installed CLI
+with this command:
+
+```bash
+DOMINO_LIVE_ACP=1 npm test -- src/lib/runtime/acp/runtime.live.test.ts
+```
+
+On 2026-10-29 the handshake succeeded and reported protocol version 1, agent
+`reasonix`, and `sessions.close: true`. The next call, `session/new`, failed with
+a JSON-RPC error before a session was created:
+
+> session/new: model "deepseek/deepseek-flash" has no API key: add
+> DEEPSEEK_API_KEY=<key> to /home/prs/.reasonix/.env or run `reasonix setup`
+> (shell environment variables are not read)
+
+Handshake through Domino is verified. Create and close through Domino are not
+verified in this environment. The live test keeps its assertions and fails on
+this condition; it is not skipped or relaxed.
+
 ## Advertised but not verified
 
 - `promptCapabilities.image: true` is advertised, but no image has been sent
@@ -155,6 +176,12 @@ The unknown-method reply was `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"me
   `load` replayed history, `resume` continued without requiring replay.
 - Workspace permission prompts and approval flows as they appear through ACP.
 - Model or provider changes at runtime.
+- Creating or closing a session through the Domino adapter on a never-prompted
+  session. On 2026-10-29 the installed runtime rejected `session/new` before
+  creating a session because the configured model had no API key.
+- Whether `session/new` itself contacts a provider. The observed failure shows it
+  resolves the configured model and its credentials, but the full call path and
+  any model usage are not characterized.
 
 ## Rules for the adapter
 
@@ -177,9 +204,21 @@ node acp-list-smoke.mjs # session/list
 
 Both scripts print the raw JSON-RPC response and a pass or fail line.
 
+The Domino adapter path uses its own live test:
+
+```bash
+DOMINO_LIVE_ACP=1 npm test -- src/lib/runtime/acp/runtime.live.test.ts
+```
+
 ## Environment note
 
 Starting Reasonix in this environment printed configuration migration warnings
 about a read-only lock directory under `~/.reasonix/locks`. They did not affect the
 `initialize` response or `session/list`. They are recorded here as an observed
 environment condition, not as part of the protocol.
+
+`session/new` also requires the configured model to have a provider API key.
+Keys are read from `~/.reasonix/.env`, not from shell environment variables. On
+2026-10-29 this environment had no key for `deepseek/deepseek-flash`, so the
+Domino live test could not create a session. That is an environment condition, not
+a protocol result, and it is not recorded as a verified session capability.

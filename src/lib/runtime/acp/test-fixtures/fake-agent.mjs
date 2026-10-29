@@ -13,9 +13,46 @@ function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
+const logFile = process.env.FAKE_AGENT_LOG_FILE;
+
+function logMessage(message) {
+  if (logFile) {
+    fs.appendFileSync(logFile, `${JSON.stringify(message)}\n`);
+  }
+}
+
 const clientRequests = new Map();
 
 let flooded = null;
+let nextSessionId = 1;
+let closeAttempts = 0;
+
+function initializeResult() {
+  const sessionCapabilities = {
+    list: {},
+    resume: {},
+    ...(mode === "no-close-capability" ? {} : { close: {} }),
+    delete: {},
+    additionalDirectories: {},
+  };
+
+  return {
+    protocolVersion: mode === "protocol-2" ? 2 : 1,
+    agentCapabilities: {
+      loadSession: true,
+      sessionCapabilities,
+      promptCapabilities: { image: true, audio: false, embeddedContext: true },
+      mcpCapabilities: { http: true, sse: false },
+      _meta: {
+        "reasonix.io": {
+          sessionSteer: { method: "_reasonix.io/session/steer" },
+        },
+      },
+    },
+    agentInfo: { name: "fake-agent", version: "1.0.0" },
+    authMethods: [{ id: "fake-setup", type: "terminal", args: ["setup"] }],
+  };
+}
 
 function floodStderr() {
   if (!flooded) {
@@ -28,6 +65,8 @@ function floodStderr() {
 }
 
 async function handleMessage(message) {
+  logMessage(message);
+
   if (typeof message.method !== "string") {
     const resolve = clientRequests.get(message.id);
 
@@ -50,6 +89,54 @@ async function handleMessage(message) {
   }
 
   switch (method) {
+    case "initialize":
+      if (mode === "initialize-error") {
+        send({
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: -32000,
+            message: "scripted initialize failure",
+            data: { detail: "nope" },
+          },
+        });
+        return;
+      }
+
+      send({ jsonrpc: "2.0", id, result: initializeResult() });
+      return;
+    case "session/new": {
+      const result =
+        mode === "malformed-session-new"
+          ? { sessionId: "" }
+          : { sessionId: `fake-acp-session-${nextSessionId}` };
+
+      nextSessionId += 1;
+
+      const respond = () => send({ jsonrpc: "2.0", id, result });
+
+      if (mode === "slow-session-new") {
+        setTimeout(respond, 200);
+      } else {
+        respond();
+      }
+
+      return;
+    }
+    case "session/close":
+      closeAttempts += 1;
+
+      if (mode === "close-fails-once" && closeAttempts === 1) {
+        send({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32000, message: "scripted close failure" },
+        });
+        return;
+      }
+
+      send({ jsonrpc: "2.0", id, result: {} });
+      return;
     case "echo":
       send({ jsonrpc: "2.0", id, result: { params } });
       return;

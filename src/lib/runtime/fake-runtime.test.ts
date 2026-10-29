@@ -67,4 +67,25 @@ describe("createFakeRuntime", () => {
       session.prompt({ text: "Two", onEvent: () => {} }),
     ).rejects.toThrow("fake runtime has no scripted turn");
   });
+
+  it("reports a stable capability snapshot", () => {
+    const runtime = createFakeRuntime();
+
+    expect(runtime.capabilities).toEqual({
+      protocolVersion: 1,
+      agent: { name: "fake", version: "1.0.0" },
+      loadSession: false,
+      sessions: { list: false, resume: false, close: true },
+    });
+  });
+
+  it("closes sessions and the runtime idempotently", async () => {
+    const runtime = createFakeRuntime();
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    await expect(session.close()).resolves.toBeUndefined();
+    await expect(session.close()).resolves.toBeUndefined();
+    await expect(runtime.close()).resolves.toBeUndefined();
+    await expect(runtime.close()).resolves.toBeUndefined();
+  });
 });

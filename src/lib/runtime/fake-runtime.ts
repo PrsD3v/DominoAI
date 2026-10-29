@@ -3,6 +3,7 @@ import type {
   PromptRequest,
   PromptResult,
   PromptStopReason,
+  RuntimeCapabilities,
   Session,
 } from "@/types/runtime";
 
@@ -11,12 +12,20 @@ export interface FakeTurn {
   stopReason?: PromptStopReason;
 }
 
+const FAKE_CAPABILITIES: RuntimeCapabilities = {
+  protocolVersion: 1,
+  agent: { name: "fake", version: "1.0.0" },
+  loadSession: false,
+  sessions: { list: false, resume: false, close: true },
+};
+
 /** Build a deterministic runtime that replays scripted turns without spawning anything. */
 export function createFakeRuntime(turns: FakeTurn[] = []): AgentRuntime {
   let sessionCount = 0;
   let turnIndex = 0;
 
   return {
+    capabilities: FAKE_CAPABILITIES,
     async createSession(): Promise<Session> {
       sessionCount += 1;
 
@@ -40,7 +49,9 @@ export function createFakeRuntime(turns: FakeTurn[] = []): AgentRuntime {
             stopReason: turn.stopReason ?? "completed",
           };
         },
+        async close(): Promise<void> {},
       };
     },
+    async close(): Promise<void> {},
   };
 }
