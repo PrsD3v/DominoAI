@@ -1,6 +1,6 @@
 # DominoAI - Project Overview
 
-<!-- blueprint:source-hash 6d0a958a26daf41a669865d542756398bc0f1349ce3083f6abe1f37fd6712703 -->
+<!-- blueprint:source-hash bd7db5f6000e1f0cbd5218437a4e13fb4fd347350e9c6243bd5ac6cc1248fe7f -->
 
 > A local-first workflow control layer for AI coding agents, open source under MIT.
 
@@ -45,7 +45,10 @@ engine, not a chat UI.
   integrations such as MCP are data, never authorization to widen the workspace or
   permission scope. MCP itself is outside the MVP.
 - API keys and session transcripts are secrets: never logged, never stored in
-  definitions or project files, never sent anywhere except the configured provider.
+  SQLite, workflow definitions, run records, events, logs, API responses, or
+  project files, and never sent anywhere except the configured provider. Domino
+  may write a key only to the runtime's official credential file after explicit
+  user action, and it never reads the key back.
 - Not established, therefore not assumed: scale, availability targets,
   compliance, audit retention, tenant isolation, billing.
 
@@ -61,8 +64,15 @@ runtime-independent workflow engine.
    on no concrete persistence.
 2. **ACP transport and process lifecycle** - the Reasonix CLI over stdio with
    JSON-RPC framing, pending requests, timeouts, and crash or shutdown handling.
-3. **Handshake, capability discovery, session lifecycle** - `initialize` plus
-   session create and close, recording only capabilities the runtime reports.
+3. **Handshake, capability discovery, session lifecycle** - the original feature
+   is split into two stages:
+   - **3A Local handshake and session lifecycle** - implemented and locally
+     tested: `initialize`, capability reporting, fake session create and close,
+     and idempotent close. Live session creation and close are not proven.
+   - **3B Live Reasonix runtime verification** - open: requires a valid,
+     disposable credential and live `initialize`, `session/new`, and
+     `session/close`. A prompt is used only if needed to prove runtime behavior.
+     No production secret is used.
 4. **Prompt execution and event normalization** - streamed updates become
    normalized runtime events; stop reasons are preserved.
 5. **Cancel and failure safety** - a verified cancelled result, and EOF, crash, or
@@ -83,6 +93,22 @@ runtime-independent workflow engine.
     restart and assert they become `interrupted` with their history intact.
 11. **Project registration and configuration** - registration-time validation and
     canonicalization of the workspace root, plus selected definition versions.
+    A project may hold an optional opaque default runtime profile reference,
+    validated by 11A.
+11A. **Reasonix provider, model, and credential settings** - one feature with
+    explicit stage status:
+    - **Stage 1 Contracts** - implemented and committed: non-secret
+      `RuntimeProfile`, `CredentialRef`, and write-only `CredentialStore`.
+    - **Stage 2/2.1 Credential file store** - implemented and committed:
+      atomic, locked, symlink-safe writes to `<Reasonix home>/.env`.
+    - **Stage 3 Provider/model catalog** - implemented and committed: read-only
+      metadata from `reasonix doctor --json`; credential presence only.
+    - **Stage 4 Persistence and migration** - blocked by Features 9 and 10; no
+      profile persistence exists in this checkout.
+    - **Later** - API, Settings UI, real connection test, and project
+      default-profile integration are not implemented.
+    Feature 11A remains open. Its real connection test depends on 3B and
+    Feature 4.
 12. **Blueprint compatibility assessment** - evidence-based decision before any
     import or mapping is assumed.
 13. **Skill delivery proof and central library** - instructions reach the agent
@@ -103,10 +129,11 @@ Reasonix version, and `resume` and `load` stay distinct operations.
 
 ### Deferred, explicitly not MVP
 
-Second runtime adapter, validated Claude provider support, MCP, Playwright and
-image analysis, concurrent or scheduled runs, multi-user auth and hosted mode,
-parallel or conditional steps, full recovery of an interrupted workflow after a
-Domino restart, export or Git sync of definitions, PostgreSQL, packaging.
+Second runtime adapter, custom provider creation or editing, a Domino-owned
+credential store, validated Claude provider support, MCP, Playwright and image
+analysis, concurrent or scheduled runs, multi-user auth and hosted mode, parallel
+or conditional steps, full recovery of an interrupted workflow after a Domino
+restart, export or Git sync of definitions, PostgreSQL, packaging.
 
 ## Data model
 
@@ -122,9 +149,21 @@ interface, never to SQLite.
 - `workspaceRoot` (absolute canonical path, symlinks resolved) - the runtime cwd;
   fixed by registration-time validation
 - `configuration` (JSON) - project-specific settings
+- optional default runtime profile id (opaque string; validated by 11A; never a
+  credential)
 - selected workflow version ids and selected skill version ids
 - `createdAt`, `updatedAt` (ISO-8601)
 - has many `WorkflowRun`
+
+### RuntimeProfile and CredentialRef
+
+- `RuntimeProfile`: `id`, `label`, `adapterId` (`reasonix`), `providerName`,
+  `model`, `apiKeyEnv`, `credentialRef`, `createdAt`, `updatedAt`
+- `CredentialRef`: `kind` (`reasonix-env`), `providerName`, `apiKeyEnv`; it
+  points to a runtime-owned credential and never contains a key value
+- Stage 4 of 11A persists this non-secret profile metadata. It is blocked until
+  Features 9 and 10 provide the persistence interface and SQLite layer. No
+  credential value belongs in this model.
 
 ### WorkflowDefinition and WorkflowVersion
 
@@ -148,6 +187,8 @@ interface, never to SQLite.
 - `projectId` to `Project`
 - `workflowVersionId` to `WorkflowVersion`, pinned at start
 - `skillVersionIds`, pinned at start
+- `runtimeProfileId` (opaque) and pinned non-secret profile metadata; never a
+  credential
 - `status`: `pending`, `running`, `paused`, `waiting_approval`, `completed`,
   `failed`, `cancelled`, `interrupted`
 - `startedAt`, `finishedAt`
@@ -196,6 +237,9 @@ interface, never to SQLite.
 - **Node.js 24, npm** - runtime and package manager
 - **Reasonix CLI v2.54.0 over ACP** - the first agent runtime, reached over stdio
 - **Model provider** - provider-agnostic; `deepseek/deepseek-flash` in development
+- **Credential handling** - existing Reasonix providers/models; a write-only
+  `<Reasonix home>/.env` store; no Domino credential store in the MVP and no new
+  dependency
 - **Vitest** - test runner, already configured
 - **SQLite** - initial storage, behind an application-owned persistence interface
 - **MIT license** - `LICENSE` at the repository root
@@ -224,7 +268,10 @@ decided.
 - Run detail - step timeline, live events, elapsed time, approval prompt
 - Session view - runtime sessions with status, workspace, and title
 - Skill and workflow editor - versioned definitions and validation errors
-- Settings - runtime binary path, workspace allowlist, provider env var names only
+- Settings - runtime binary path, workspace allowlist, existing Reasonix provider
+  and model selection, a write-only API key field, credential status, every
+  profile sharing the same `api_key_env`, and a real connection test; feature 14
+  folds this screen into the dashboard
 
 Every stop, cancel, and approval action names the run and step it affects. A
 cancelled or interrupted run is visually distinct from a completed one, and
@@ -329,3 +376,9 @@ Each is assigned to the feature that settles it. None blocks feature 1.
 6. Packaging and install path - post-MVP, with release automation
 7. Whether the theme follows the OS only or exposes an explicit light/dark toggle
    - feature 14
+8. Runtime Profile persistence and migration - Feature 11A Stage 4; blocked until
+   Features 9 and 10 exist
+9. Live Reasonix session creation and close, plus the real connection test -
+   Feature 3B; requires a disposable credential and Feature 4
+10. Credential path, permissions, and atomic replacement on Windows and macOS -
+    Feature 11A
