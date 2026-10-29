@@ -45,7 +45,7 @@ a form needs schema-based validation. Reference images, when supplied, live in
 ## Foundations
 
 - [x] 1. **Runtime contracts and adapter test harness** - Extend the existing Vitest setup with Domino-owned, runtime-independent contracts for `AgentRuntime`, `Session`, `PromptResult`, and `RuntimeEvent`, plus a fake runtime so the engine is testable without Reasonix. Acceptance: the public types expose no Reasonix-specific ACP methods or raw ACP protocol structures; they depend on no SQLite, ORM, or concrete persistence implementation; a fake runtime satisfies the contracts and is exercised by Vitest without spawning Reasonix or making a network call; the initial contracts stay minimal and gain capability only when a later feature requires it.
-- [ ] 2. **ACP transport and process lifecycle** - Spawn the Reasonix CLI over stdio with JSON-RPC framing, request and notification dispatch, pending-request tracking, timeouts, and crash or shutdown handling.
+- [x] 2. **ACP transport and process lifecycle** - Spawn the Reasonix CLI over stdio with JSON-RPC framing, request and notification dispatch, pending-request tracking, timeouts, and crash or shutdown handling.
 - [ ] 3. **Handshake, capability discovery, and session lifecycle** - Implement `initialize` with capability reporting plus session create and close, recording only what the installed runtime reports.
 - [ ] 4. **Prompt execution and event normalization** - Run `session/prompt`, map streamed updates into normalized runtime events, and handle stop reasons without discarding original event data.
 - [ ] 5. **Cancel and failure safety** - Verify `session/cancel` produces a cancelled result, and make EOF, crash, and timeout end pending work instead of hanging it.

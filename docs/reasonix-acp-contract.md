@@ -16,6 +16,7 @@ not the same as verified behavior.
 | Agent info from `initialize` | `name: reasonix`, `version: v2.54.0` |
 | Protocol version | `1` |
 | Transport | ACP over stdio, JSON-RPC 2.0, one JSON object per line |
+| Launch command | `reasonix acp --model deepseek/deepseek-flash --permission-mode ask`, cwd set to the workspace, stdin, stdout, and stderr piped |
 | Model used by the reference scripts | `deepseek/deepseek-flash` |
 | Node.js | `v24.18.1` |
 | Reference scripts | `~/Projects/reasonix-workflow-poc/acp-*.mjs` |
@@ -103,6 +104,7 @@ been exercised.
 
 | Operation | Method | Evidence | Status |
 | --- | --- | --- | --- |
+| Transport framing and correlation | an unknown method | Domino transport, 2026-10-29; replied `-32601` with `method not found: domino/transport-probe` | verified |
 | Handshake and capabilities | `initialize` | Re-run in this session, 2026-10-29 | verified |
 | Session summaries | `session/list` | Re-run in this session, 2026-10-29; returned `sessionId`, `cwd`, `title`, `updatedAt` | verified |
 | Create session | `session/new` | PoC run, 2026-10-28; returned a `sessionId` | verified in the PoC, not re-run here |
@@ -116,6 +118,20 @@ been exercised.
 "Re-run in this session" means the smoke script was executed again on 2026-10-29
 while writing this file. The other rows come from the PoC handoff and its scripts;
 they were not re-executed here because they require model calls.
+
+## Transport check
+
+The Domino transport spawned the installed CLI with the launch command above,
+sent one request with id `1` for an unknown method, matched the response by id,
+and then closed the child. No model call and no handshake were involved, so this
+proves process start, newline framing, request correlation, error propagation, and
+shutdown. The check is repeatable and skipped by default:
+
+```bash
+DOMINO_LIVE_ACP=1 npm test -- src/lib/runtime/acp/transport.live.test.ts
+```
+
+The unknown-method reply was `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: domino/transport-probe"}}`.
 
 ## Advertised but not verified
 
