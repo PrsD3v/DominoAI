@@ -55,9 +55,20 @@ and installed dependencies before adding machinery.
 - `blueprint/context/coding-standards.md` - read before changing code
 - `blueprint/context/ai-interaction.md` - read when running the Blueprint workflow
 - `blueprint/context/current-feature.md` - the one feature, fix, or rollback being built in this checkout
+- `blueprint/context/execution-history.md` - dated record of out-of-roadmap decisions, closures, and execution-order context
 
 Reuse relevant context already loaded in the session. Claude Code imports only
 this file; its Blueprint skills load the other files on demand.
+
+### Execution history
+
+Read `blueprint/context/execution-history.md` before planning or implementing,
+and before changing execution priorities or making an architectural decision. It
+is supplementary memory, not a roadmap: `blueprint/build-plan.md` stays
+canonical. Record meaningful approved out-of-roadmap work there, label each entry
+verified, proposed, blocked, deferred, or completed, and never treat an
+administrative closure as proof of technical verification. Never edit the
+canonical roadmap to accommodate an execution-order preference.
 
 ## Project configuration
 
