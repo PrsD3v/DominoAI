@@ -95,7 +95,7 @@ Deferred (explicitly not MVP):
 
 ### Delivery status (feature separation)
 
-- Feature 3A (handshake, capability discovery, and session lifecycle) is implemented and locally tested. Feature 3B (live Reasonix session creation and close with a valid disposable credential) remains open; no live success is claimed.
+- Feature 3A (handshake, capability discovery, and session lifecycle) is implemented and locally tested. Feature 3B (live Reasonix session creation and close with a valid disposable credential) is blocked and deferred by the missing valid disposable credential and writable Reasonix home. Feature 3 remains open; 3B is intentionally outside the selectable checklist until both prerequisites exist. No live success is claimed.
 - Feature 11A Stage 1 (contracts), Stage 2/2.1 (credential file store), and Stage 3 (provider/model catalog) are implemented and tested. Stage 4 (persistence and migration) is blocked until Features 9 and 10 exist. API, Settings UI, real connection test, and project default-profile integration remain open.
 - Features 9 and 10 keep their existing order and remain prerequisites for Feature 11A Stage 4. These implementation units do not mark any feature complete.
 

@@ -1,6 +1,6 @@
 # DominoAI - Project Overview
 
-<!-- blueprint:source-hash bd7db5f6000e1f0cbd5218437a4e13fb4fd347350e9c6243bd5ac6cc1248fe7f -->
+<!-- blueprint:source-hash 4aa641336258b26489225d8b21199ffc54a99c53f55773f92362e71000f9ded4 -->
 
 > A local-first workflow control layer for AI coding agents, open source under MIT.
 
@@ -69,10 +69,12 @@ runtime-independent workflow engine.
    - **3A Local handshake and session lifecycle** - implemented and locally
      tested: `initialize`, capability reporting, fake session create and close,
      and idempotent close. Live session creation and close are not proven.
-   - **3B Live Reasonix runtime verification** - open: requires a valid,
-     disposable credential and live `initialize`, `session/new`, and
-     `session/close`. A prompt is used only if needed to prove runtime behavior.
-     No production secret is used.
+   - **3B Live Reasonix runtime verification - BLOCKED / DEFERRED** - keep open;
+     requires a valid, disposable credential and a writable Reasonix home.
+     Original acceptance remains: live `initialize`, `session/new`, and
+     `session/close`; a prompt only if needed to prove runtime behavior; no
+     production secret and no unverified claim. Keep outside the selectable
+     checklist until both prerequisites exist.
 4. **Prompt execution and event normalization** - streamed updates become
    normalized runtime events; stop reasons are preserved.
 5. **Cancel and failure safety** - a verified cancelled result, and EOF, crash, or
