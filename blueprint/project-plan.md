@@ -73,12 +73,15 @@ Core (MVP):
 - a workflow engine that owns run state, ordering, retry, pause, continue, cancel, and history
 - SQLite persistence for definitions, projects, workflow runs, step runs, approvals, and runtime session links
 - Skill content delivered to the runtime through a verified mechanism, with no permanent install in the target project
+- runtime profiles that select an existing Reasonix provider and model, with a write-only API key entry and a real connection test
 - a minimal dashboard to start a workflow against a registered project, watch it, stop it, answer approvals, and read results
-- local operation with user-supplied API keys and no secrets in project files or logs
+- local operation with user-supplied API keys; Domino never persists or returns them, and no secret appears in project files, logs, workflow history, or API responses
 
 Deferred (explicitly not MVP):
 
 - a second runtime adapter
+- custom provider creation or editing
+- a Domino-owned credential store
 - Claude provider support validated end to end
 - MCP tool integration
 - Playwright and screenshot or image analysis
@@ -89,6 +92,12 @@ Deferred (explicitly not MVP):
 - export or sync of definitions into target project files
 - bidirectional Git synchronization
 - PostgreSQL or another server database
+
+### Delivery status (feature separation)
+
+- Feature 3A (handshake, capability discovery, and session lifecycle) is implemented and locally tested. Feature 3B (live Reasonix session creation and close with a valid disposable credential) remains open; no live success is claimed.
+- Feature 11A Stage 1 (contracts), Stage 2/2.1 (credential file store), and Stage 3 (provider/model catalog) are implemented and tested. Stage 4 (persistence and migration) is blocked until Features 9 and 10 exist. API, Settings UI, real connection test, and project default-profile integration remain open.
+- Features 9 and 10 keep their existing order and remain prerequisites for Feature 11A Stage 4. These implementation units do not mark any feature complete.
 
 ## 4. Data - What are we storing?
 
@@ -103,6 +112,8 @@ failure mode in this kind of system.
 | Workflow run | One execution of one definition version against one project |
 | Step run | State and result of one step inside a run |
 | Approval request | What was asked, when, and how it was answered |
+| Runtime profile | Non-secret settings that select an existing adapter, provider, model, and `api_key_env` name; never a key value |
+| Credential reference | Provider and `api_key_env` name used to locate the runtime-owned credential; contains no secret |
 | Runtime session reference | The runtime's own session id, linked to a step run |
 | Runtime event record | Normalized events, or a summarized retention of them |
 
@@ -113,6 +124,7 @@ Rules:
 - published versions are immutable; editing a definition creates a new version
 - a run pins the exact Workflow and Skill versions it started with, so later
   edits never mutate a running or completed run
+- a run pins the runtime profile metadata it started with, never a secret
 - Domino owns a central, versioned library of reusable Skill and Workflow
   definitions; project-specific instructions and configuration may stay in the
   target project's Git repository
@@ -121,8 +133,10 @@ Rules:
 - Domino does not rewrite the target project's tree in the MVP; export or sync
   into project files is a later, opt-in capability, and bidirectional Git
   synchronization is out of scope
-- no secrets are stored: API keys stay where the runtime and provider expect
-  them, and Domino refers to them by environment variable name only
+- Domino never stores a secret. API keys never enter SQLite, workflow
+  definitions, run records, events, logs, API responses, or Git. On explicit
+  user action Domino may write a key only to the runtime's official credential
+  file; otherwise it refers to it by provider and `api_key_env` name
 
 Storage: SQLite is the selected initial engine, held as a local file owned by the
 app. The driver, migration approach, schema details, and event retention policy
@@ -157,6 +171,9 @@ Constraints:
   not a static export
 - the runtime is reached through ACP, not by importing Reasonix internals
 - the model provider is a runtime setting and never a Domino dependency
+- credential handling writes only to the runtime's official credential file after
+  explicit user action; no Domino credential store and no new dependency are
+  added for it
 - the Workflow Engine depends on an application-owned persistence interface, not
   on SQLite or an ORM directly
 - no PostgreSQL, server database, or Prisma layer is added for the MVP; SQLite is
@@ -219,8 +236,9 @@ Screens:
 - Session view: runtime sessions with status, workspace, and title
 - Skill and workflow editor: versioned definitions, active or inactive state,
   validation errors shown in place
-- Settings: runtime binary path, workspace allowlist, provider environment
-  variable names (names only, never values)
+- Settings: runtime binary path, workspace allowlist, existing Reasonix provider
+  and model selection, a write-only API key field, credential status, every
+  profile sharing the same `api_key_env`, and a real connection test
 
 Interaction rules:
 
@@ -279,7 +297,8 @@ machine, next to the project it operates on.
 - Build: `npm run build`. Start: `npm run start`.
 - Environment variables, by name only: runtime binary path, workspace root
   allowlist, storage path, and the provider variable names the runtime already
-  expects. Values are never committed.
+  expects. Values are never committed. The API key value stays in the runtime's
+  credential file; Domino never stores or returns it.
 - Database: a local SQLite file created and owned by the app. No database server
   is required. Its path comes from an environment variable and the file is never
   committed.
@@ -315,7 +334,10 @@ Real boundaries that must hold even in a single-user tool:
   integrations such as MCP are data, never authorization to widen the workspace or
   permission scope; MCP itself is outside the MVP
 - API keys and session transcripts are secrets: never logged, never written into
-  workflow definitions, and never sent anywhere except the configured provider
+  workflow definitions, run records, events, or API responses, and never sent
+  anywhere except the configured provider. Domino may write a key only to the
+  runtime's official credential file after explicit user action; it never reads
+  the key back
 - approval points exist because a destructive step needs a human decision
 
 Not established, therefore not assumed:
@@ -345,6 +367,9 @@ feature 1.
 6. Packaging and install path - post-MVP, alongside release automation.
 7. Whether the theme follows the OS only or also exposes an explicit light/dark
    toggle - feature 14.
+8. Credential file path, permissions, and atomic replacement on Windows and
+   macOS - feature 11A.
+9. Connection test cost, timeout, and error categories - feature 11A.
 
 Known risks:
 
@@ -400,6 +425,8 @@ The MVP is done when these are observed, not listed:
 - runtime failures are reported as failures
 - the workflow engine runs without importing ACP details
 - a project can be registered and a workflow started against it
+- a project can select a runtime profile, configure an existing Reasonix
+  provider/model and a write-only API key, and pass a real connection test
 - Skill instructions reach the Reasonix agent through a verified ACP-compatible
   mechanism, a small observable task uses them, and the target project's file
   tree is unchanged
