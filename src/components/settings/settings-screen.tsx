@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CredentialPanel } from "@/components/settings/credential-panel";
+import { ConnectionTestButton } from "@/components/settings/connection-test-button";
 import { ProfileForm } from "@/components/settings/profile-form";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -137,9 +138,16 @@ function ProfileGroupCard({
                   {messages.settings.actions.edit}
                 </Button>
               </div>
+              <ConnectionTestButton
+                profile={profile}
+                onProfileMissing={onProfileMissing}
+              />
             </li>
           ))}
         </ul>
+        <p className="text-xs text-muted-foreground">
+          {messages.settings.connection.hint}
+        </p>
         <CredentialPanel
           group={group}
           onStatusChange={onCredentialStatusChange}

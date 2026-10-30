@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ReasonixEnvFileStore } from "../runtime/reasonix/env-file-store";
+import { runReasonixConnectionTest } from "../runtime/reasonix/connection-test";
 import {
   loadReasonixProviderCatalog,
   runReasonixDoctor,
@@ -75,6 +76,12 @@ export function createSettingsServiceFromEnvironment(
       loadReasonixProviderCatalog(() =>
         runReasonixDoctor(paths.reasonixBin),
       ),
+    runConnectionTest: (profile) =>
+      runReasonixConnectionTest({
+        profile,
+        reasonixBin: paths.reasonixBin,
+        reasonixHome: paths.reasonixHome,
+      }),
   });
 }
 

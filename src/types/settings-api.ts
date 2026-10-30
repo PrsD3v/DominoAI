@@ -1,5 +1,9 @@
 import type { RuntimeProviderCatalog } from "./runtime-catalog";
-import type { CredentialStatus, RuntimeProfile } from "./runtime-settings";
+import type {
+  ConnectionTestResult,
+  CredentialStatus,
+  RuntimeProfile,
+} from "./runtime-settings";
 
 /** Stable, non-secret error codes shared by the settings service and its UI. */
 export const SETTINGS_ERROR_CODES = [
@@ -48,6 +52,10 @@ export interface SettingsProfileResponse {
 
 export interface SettingsCredentialStatusResponse {
   readonly status: CredentialStatus;
+}
+
+export interface SettingsConnectionTestResponse {
+  readonly result: ConnectionTestResult;
 }
 
 export interface SettingsErrorBody {

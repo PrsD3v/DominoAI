@@ -7,7 +7,11 @@ import type {
   CredentialStatus,
   RuntimeProfile,
 } from "../../types/runtime-settings";
-import { isRuntimeProfile } from "../../types/runtime-settings";
+import {
+  isConnectionTestFailureCode,
+  isRuntimeProfile,
+  type ConnectionTestResult,
+} from "../../types/runtime-settings";
 import {
   SETTINGS_ERROR_CODES,
   type SettingsErrorCode,
@@ -329,6 +333,29 @@ export function narrowCredentialStatusResponse(
   }
 
   return value.status;
+}
+
+export function narrowConnectionTestResponse(
+  value: unknown,
+): ConnectionTestResult | null {
+  if (!isRecord(value) || !isRecord(value.result)) {
+    return null;
+  }
+
+  const result = value.result;
+
+  if (result.outcome === "succeeded") {
+    return { outcome: "succeeded" };
+  }
+
+  if (
+    result.outcome === "failed" &&
+    isConnectionTestFailureCode(result.code)
+  ) {
+    return { outcome: "failed", code: result.code };
+  }
+
+  return null;
 }
 
 export function parseSettingsFailure(

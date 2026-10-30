@@ -45,6 +45,42 @@ export interface RuntimeProfile {
 /** Presence of a credential. It never carries or returns a secret value. */
 export type CredentialStatus = "missing" | "present" | "unknown";
 
+/** Stable, non-secret failure codes for a runtime connection test. */
+export const CONNECTION_TEST_FAILURE_CODES = [
+  "credential_missing",
+  "invalid_profile",
+  "workspace_unavailable",
+  "runtime_unavailable",
+  "session_failed",
+  "prompt_failed",
+  "cancelled",
+  "timeout",
+] as const;
+
+export type ConnectionTestFailureCode =
+  (typeof CONNECTION_TEST_FAILURE_CODES)[number];
+
+/**
+ * Outcome of one connection test.
+ * It never contains a credential, runtime message, path, or model output.
+ */
+export type ConnectionTestResult =
+  | { readonly outcome: "succeeded" }
+  | { readonly outcome: "failed"; readonly code: ConnectionTestFailureCode };
+
+const CONNECTION_TEST_FAILURE_CODE_SET = new Set<string>(
+  CONNECTION_TEST_FAILURE_CODES,
+);
+
+/** Runtime guard for a stable connection-test failure code. */
+export function isConnectionTestFailureCode(
+  value: unknown,
+): value is ConnectionTestFailureCode {
+  return (
+    typeof value === "string" && CONNECTION_TEST_FAILURE_CODE_SET.has(value)
+  );
+}
+
 /** Write-only credential operations. There is deliberately no read operation. */
 export interface CredentialStore {
   status(ref: CredentialRef): Promise<CredentialStatus>;

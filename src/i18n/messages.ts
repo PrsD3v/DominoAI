@@ -93,6 +93,30 @@ const en = {
       sharedKey: "This key is shared by every profile in this group.",
       noProfiles: "No profiles use this key yet.",
     },
+    connection: {
+      test: "Test connection",
+      testing: "Testing connection",
+      succeeded: "The connection test succeeded.",
+      failed: "The connection test failed.",
+      hint:
+        "The test sends one short prompt to the selected provider and may incur a small charge.",
+      errors: {
+        credential_missing:
+          "No API key is stored for this profile's environment variable.",
+        invalid_profile:
+          "The saved profile is not valid. Edit it before testing again.",
+        workspace_unavailable:
+          "A temporary read-only workspace could not be prepared.",
+        runtime_unavailable:
+          "The Reasonix runtime did not start or complete its handshake.",
+        session_failed:
+          "Reasonix could not create a session for the test workspace.",
+        prompt_failed:
+          "The test prompt failed. The provider rejected it or returned an error.",
+        cancelled: "The test prompt was cancelled before it completed.",
+        timeout: "The connection test did not finish in time.",
+      },
+    },
     notices: {
       catalogUnavailable:
         "The Reasonix provider catalog could not be read. Check the Reasonix installation and try again.",
@@ -248,6 +272,30 @@ const fa: Messages = {
       profileCount: "تعداد پروفایل در این گروه",
       sharedKey: "این کلید بین همهٔ پروفایل‌های این گروه مشترک است.",
       noProfiles: "هنوز هیچ پروفایلی از این کلید استفاده نمی‌کند.",
+    },
+    connection: {
+      test: "آزمایش اتصال",
+      testing: "در حال آزمایش اتصال",
+      succeeded: "آزمایش اتصال موفق بود.",
+      failed: "آزمایش اتصال ناموفق بود.",
+      hint:
+        "این آزمایش یک درخواست کوتاه به Provider انتخاب‌شده می‌فرستد و ممکن است هزینهٔ کمی داشته باشد.",
+      errors: {
+        credential_missing:
+          "برای متغیر محیطی این پروفایل هیچ کلید API ذخیره نشده است.",
+        invalid_profile:
+          "پروفایل ذخیره‌شده معتبر نیست. پیش از آزمایش دوباره آن را ویرایش کن.",
+        workspace_unavailable:
+          "پوشهٔ موقت و فقط‌خواندنی برای آزمایش ساخته نشد.",
+        runtime_unavailable:
+          "Runtime مربوط به Reasonix شروع نشد یا دست‌دادن اولیه را کامل نکرد.",
+        session_failed:
+          "Reasonix نتوانست برای پوشهٔ آزمایش نشست بسازد.",
+        prompt_failed:
+          "درخواست آزمایش شکست خورد. Provider آن را رد کرد یا خطا برگرداند.",
+        cancelled: "درخواست آزمایش پیش از پایان لغو شد.",
+        timeout: "آزمایش اتصال در زمان مجاز تمام نشد.",
+      },
     },
     notices: {
       catalogUnavailable:

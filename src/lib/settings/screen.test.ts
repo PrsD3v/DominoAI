@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { en, fa } from "../../i18n/messages";
 import type { RuntimeProviderCatalog } from "../../types/runtime-catalog";
-import type {
-  CredentialStatus,
-  RuntimeProfile,
+import {
+  CONNECTION_TEST_FAILURE_CODES,
+  type CredentialStatus,
+  type RuntimeProfile,
 } from "../../types/runtime-settings";
 import {
   SETTINGS_ERROR_CODES,
@@ -17,6 +18,7 @@ import {
   modelAfterProviderChange,
   modelsForProvider,
   narrowCatalogResponse,
+  narrowConnectionTestResponse,
   narrowCredentialStatusResponse,
   narrowProfileResponse,
   narrowProfilesResponse,
@@ -364,6 +366,30 @@ describe("response narrowing", () => {
     expect(narrowCredentialStatusResponse({ status: "present" })).toBe("present");
     expect(narrowCredentialStatusResponse({ status: "valid" })).toBeNull();
   });
+
+  it("narrows a connection-test response", () => {
+    expect(
+      narrowConnectionTestResponse({ result: { outcome: "succeeded" } }),
+    ).toEqual({ outcome: "succeeded" });
+    expect(
+      narrowConnectionTestResponse({
+        result: { outcome: "failed", code: "credential_missing" },
+      }),
+    ).toEqual({ outcome: "failed", code: "credential_missing" });
+  });
+
+  it("rejects malformed connection-test responses", () => {
+    for (const value of [
+      null,
+      {},
+      { result: null },
+      { result: { outcome: "other" } },
+      { result: { outcome: "failed" } },
+      { result: { outcome: "failed", code: "other" } },
+    ]) {
+      expect(narrowConnectionTestResponse(value)).toBeNull();
+    }
+  });
 });
 
 describe("localized settings messages", () => {
@@ -386,5 +412,15 @@ describe("localized settings messages", () => {
       expect(en.settings.status[status]).not.toBe("");
       expect(fa.settings.status[status]).not.toBe("");
     }
+  });
+
+  it("covers every connection-test failure code in both catalogs", () => {
+    for (const code of CONNECTION_TEST_FAILURE_CODES) {
+      expect(en.settings.connection.errors[code]).not.toBe("");
+      expect(fa.settings.connection.errors[code]).not.toBe("");
+    }
+
+    expect(en.settings.connection.hint).not.toBe("");
+    expect(fa.settings.connection.hint).not.toBe("");
   });
 });

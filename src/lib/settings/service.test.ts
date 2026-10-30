@@ -114,6 +114,7 @@ function setup(overrides: Partial<SettingsServiceDeps> = {}) {
     profiles,
     credentials,
     loadCatalog: async () => catalog,
+    runConnectionTest: async () => ({ outcome: "succeeded" }),
     now: () => "2026-10-30T00:00:00.000Z",
     newId: () => `profile-${(nextId += 1)}`,
     ...overrides,
@@ -405,6 +406,107 @@ describe("settings service", () => {
 
     const settingsError = expectSettingsError(error, expected);
     expect(settingsError.message).not.toContain("raw upstream detail");
+  });
+
+  it("returns credential_missing without running a test when the key is absent", async () => {
+    let calls = 0;
+    const { service } = setup({
+      runConnectionTest: async () => {
+        calls += 1;
+        return { outcome: "succeeded" };
+      },
+    });
+    const profile = await service.createProfile({
+      label: "Default",
+      providerName: "deepseek",
+      model: "deepseek-flash",
+    });
+
+    await expect(service.testConnection(profile.id)).resolves.toEqual({
+      outcome: "failed",
+      code: "credential_missing",
+    });
+    expect(calls).toBe(0);
+  });
+
+  it("runs the test for a present or unknown credential", async () => {
+    const received: string[] = [];
+    const { service, credentials } = setup({
+      runConnectionTest: async (profile) => {
+        received.push(profile.id);
+        return { outcome: "succeeded" };
+      },
+    });
+    const profile = await service.createProfile({
+      label: "Default",
+      providerName: "deepseek",
+      model: "deepseek-flash",
+    });
+
+    await service.setCredential(profile.id, { secret: "sk-test-value" });
+    await expect(service.testConnection(profile.id)).resolves.toEqual({
+      outcome: "succeeded",
+    });
+
+    credentials.values.delete("DEEPSEEK_API_KEY");
+    const status = await service.getCredentialStatus(profile.id);
+    expect(status).toBe("missing");
+    received.length = 0;
+
+    const unknownStore: CredentialStore = {
+      status: async () => "unknown",
+      set: async () => {},
+      remove: async () => {},
+    };
+    const unknownService = setup({
+      credentials: unknownStore,
+      runConnectionTest: async (candidate) => {
+        received.push(candidate.id);
+        return { outcome: "succeeded" };
+      },
+    }).service;
+    const unknownProfile = await unknownService.createProfile({
+      label: "Default",
+      providerName: "deepseek",
+      model: "deepseek-flash",
+    });
+
+    await expect(
+      unknownService.testConnection(unknownProfile.id),
+    ).resolves.toEqual({ outcome: "succeeded" });
+    expect(received).toEqual([unknownProfile.id]);
+  });
+
+  it("rejects an unknown profile before running a test", async () => {
+    const { service } = setup();
+
+    expectSettingsError(
+      await errorFrom(service.testConnection("missing")),
+      "profile_not_found",
+    );
+  });
+
+  it("maps an unexpected runner failure to runtime_unavailable", async () => {
+    const { service } = setup({
+      credentials: {
+        status: async () => "present",
+        set: async () => {},
+        remove: async () => {},
+      },
+      runConnectionTest: async () => {
+        throw new Error("raw upstream detail");
+      },
+    });
+    const profile = await service.createProfile({
+      label: "Default",
+      providerName: "deepseek",
+      model: "deepseek-flash",
+    });
+
+    const result = await service.testConnection(profile.id);
+
+    expect(result).toEqual({ outcome: "failed", code: "runtime_unavailable" });
+    expect(JSON.stringify(result)).not.toContain("raw upstream detail");
   });
 
   it("maps profile store failures to persistence_error", async () => {

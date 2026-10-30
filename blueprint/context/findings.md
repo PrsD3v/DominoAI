@@ -682,3 +682,76 @@ rather than on a defect, and a real lock regression would look the same.
 `lockTimeoutMs` for this case or drive the takeover with fake timers) so it
 asserts ordering rather than machine speed.
 **Resolution:** Open.
+
+### F-34 [P2] unverified - The `read-only` permission flag has no recorded evidence and the contract recorded `ask`
+
+**File:** src/lib/runtime/reasonix/connection-test.ts:106
+**Found:** 2026-10-31 by /audit independent (scope: current; lens: security)
+**Why it matters:** The runner launches `reasonix acp --model <p>/<m>
+--permission-mode read-only`. The spec states the installed CLI help advertises
+`read-only`, but nothing in the repo records that help output, and the only
+recorded observation in this environment names a different value:
+`docs/reasonix-acp-contract.md:19` documents the launch command as
+`reasonix acp --model deepseek/deepseek-flash --permission-mode ask`. The
+reviewer machine has no `reasonix` binary (`which reasonix` reports none), so the
+confirmation could not be reproduced. If the CLI rejects the value, every real
+test fails at process start and surfaces as `runtime_unavailable`, which the UI
+describes as a start/handshake problem rather than a wrong flag.
+**Suggested fix:** Record the observed `reasonix acp --help` output next to the
+launch command in `docs/reasonix-acp-contract.md`, or re-confirm the accepted
+values when Feature 3B unblocks and update that table. No code change until a
+rejection is actually observed.
+**Resolution:** Unverified. Not reproducible in this environment: no `reasonix`
+binary on PATH, and no help-output artifact in the repo.
+
+### F-35 [P3] open - The timeout path closes the runtime before the session
+
+**File:** src/lib/runtime/reasonix/connection-test.ts:150
+**Found:** 2026-10-31 by /audit independent (scope: current; lens: quality)
+**Why it matters:** In `execute`'s `finally`, the `timedOut` branch closes the
+runtime at `:152`, and only afterwards does the unconditional teardown close the
+session at `:166`. `AcpRuntime.close()` memoizes the transport shutdown
+(`runtime.ts:103-120`) and `transport.request` rejects once the transport is
+closed (`transport.ts:304-308`), so on the timeout path the `session/close`
+request is issued against a closed transport, rejects with
+`TransportClosedError`, and is swallowed by `closeQuietly`. The forced cleanup
+therefore never sends `session/close`, and the runtime is closed twice (harmless
+only because `close()` returns the same memoized promise). The non-timeout path
+orders the two closes correctly, so this branch is both redundant and the one
+place the order is wrong.
+**Suggested fix:** Keep only the late-runtime arm of that branch (the
+`pendingRuntime` case) and let the single unconditional
+`closeQuietly(session)` then `closeQuietly(runtime)` handle teardown.
+**Resolution:** Open.
+
+### F-36 [P3] open - Two spec-stated runner guarantees have no test
+
+**File:** src/lib/runtime/reasonix/connection-test.test.ts:130
+**Found:** 2026-10-31 by /audit independent (scope: current; lens: tests)
+**Why it matters:** Spec step 2 requires the runner test file to prove
+`credential_missing` is not returned by this module, and the string
+`credential_missing` does not appear anywhere in
+`connection-test.test.ts` (`grep -c` returns 0). The runner contract also states
+that a cleanup failure does not change an already typed result, and no case makes
+`chmod`/`rm` fail, so that clause is unpinned too. Both behaviors are implemented
+today, but a later edit that borrowed the service's `credential_missing` code or
+let a cleanup error escape would keep the suite green.
+**Suggested fix:** Add one case asserting no runner path yields
+`credential_missing` (for example assert the runner's reachable codes against
+`CONNECTION_TEST_FAILURE_CODES` minus that entry), and either a failing-cleanup
+case or a spec note that the cleanup clause is not directly injectable.
+**Resolution:** Open.
+
+### F-37 [P3] open - `execute` is over the project's 50-line function guideline
+
+**File:** src/lib/runtime/reasonix/connection-test.ts:81
+**Found:** 2026-10-31 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `coding-standards.md` asks for functions under 50 lines.
+`execute` spans lines 81-169 and carries three jobs at once: the deadline race,
+the staged error mapping, and the teardown order that F-35 already shows is easy
+to get wrong. Same class as F-04, smaller scale, and the size is what makes the
+teardown branch hard to read.
+**Suggested fix:** Split it into a start-and-prompt step that returns the typed
+result plus its live handles, and a teardown step that takes those handles and
+the timeout flag. No spec requirement is lost: the runner contract is unchanged.
+**Resolution:** Open.

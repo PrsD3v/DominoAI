@@ -42,6 +42,7 @@ function serviceWith(overrides: Partial<SettingsService>): SettingsService {
     getCredentialStatus: unexpected,
     setCredential: unexpected,
     removeCredential: unexpected,
+    testConnection: unexpected,
     ...overrides,
   };
 }

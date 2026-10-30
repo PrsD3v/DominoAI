@@ -1,11 +1,14 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  CONNECTION_TEST_FAILURE_CODES,
+  isConnectionTestFailureCode,
   isRuntimeProfile,
   validateCredentialRef,
   validateRuntimeProfile,
   type CredentialRef,
   type CredentialStatus,
   type CredentialStore,
+  type ConnectionTestResult,
   type RuntimeProfile,
 } from "./runtime-settings";
 
@@ -215,6 +218,27 @@ describe("CredentialRef contract", () => {
     for (const value of [null, [], "ref", 1]) {
       expect(validateCredentialRef(value)).not.toEqual([]);
     }
+  });
+});
+
+describe("ConnectionTestResult contract", () => {
+  it("accepts every stable failure code", () => {
+    for (const code of CONNECTION_TEST_FAILURE_CODES) {
+      expect(isConnectionTestFailureCode(code)).toBe(true);
+    }
+  });
+
+  it("rejects unknown or non-string codes", () => {
+    for (const value of ["other", "", null, undefined, 1, {}]) {
+      expect(isConnectionTestFailureCode(value)).toBe(false);
+    }
+  });
+
+  it("keeps the result free of secrets and runtime detail", () => {
+    expectTypeOf<keyof Extract<ConnectionTestResult, { outcome: "failed" }>>()
+      .toEqualTypeOf<"outcome" | "code">();
+    expectTypeOf<keyof Extract<ConnectionTestResult, { outcome: "succeeded" }>>()
+      .toEqualTypeOf<"outcome">();
   });
 });
 

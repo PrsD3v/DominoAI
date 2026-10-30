@@ -6,6 +6,7 @@ import type {
 } from "../../types/runtime-catalog";
 import {
   validateRuntimeProfile,
+  type ConnectionTestResult,
   type CredentialStatus,
   type CredentialStore,
   type RuntimeProfile,
@@ -67,6 +68,9 @@ export interface SettingsServiceDeps {
   readonly profiles: RuntimeProfilePersistence;
   readonly credentials: CredentialStore;
   readonly loadCatalog: () => Promise<RuntimeProviderCatalog>;
+  readonly runConnectionTest: (
+    profile: RuntimeProfile,
+  ) => Promise<ConnectionTestResult>;
   readonly now?: () => string;
   readonly newId?: () => string;
 }
@@ -79,6 +83,7 @@ export interface SettingsService {
   getCredentialStatus(id: string): Promise<CredentialStatus>;
   setCredential(id: string, input: unknown): Promise<CredentialStatus>;
   removeCredential(id: string): Promise<CredentialStatus>;
+  testConnection(id: string): Promise<ConnectionTestResult>;
 }
 
 interface ProfileInput {
@@ -397,6 +402,21 @@ export function createSettingsService(
     return statusFor(profile);
   }
 
+  async function testConnection(id: string): Promise<ConnectionTestResult> {
+    const profile = await requireProfile(id);
+    const status = await statusFor(profile);
+
+    if (status === "missing") {
+      return { outcome: "failed", code: "credential_missing" };
+    }
+
+    try {
+      return await deps.runConnectionTest(profile);
+    } catch {
+      return { outcome: "failed", code: "runtime_unavailable" };
+    }
+  }
+
   return {
     loadCatalog,
     listProfiles,
@@ -405,5 +425,6 @@ export function createSettingsService(
     getCredentialStatus,
     setCredential,
     removeCredential,
+    testConnection,
   };
 }
