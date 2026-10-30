@@ -1,4 +1,8 @@
-import type { RuntimeAgentInfo, RuntimeCapabilities } from "@/types/runtime";
+import type {
+  PromptStopReason,
+  RuntimeAgentInfo,
+  RuntimeCapabilities,
+} from "@/types/runtime";
 
 /** ACP protocol version this adapter understands. */
 export const ACP_PROTOCOL_VERSION = 1;
@@ -29,6 +33,26 @@ export class AcpUnsupportedProtocolError extends AcpProtocolError {
     this.reportedVersion = reportedVersion;
     this.supportedVersion = supportedVersion;
   }
+}
+
+export class AcpUnsupportedStopReasonError extends AcpProtocolError {
+  readonly reportedStopReason: unknown;
+
+  constructor(reportedStopReason: unknown) {
+    super(
+      `Unsupported ACP prompt stop reason: ${describeStopReason(reportedStopReason)}`,
+    );
+    this.name = "AcpUnsupportedStopReasonError";
+    this.reportedStopReason = reportedStopReason;
+  }
+}
+
+function describeStopReason(value: unknown): string {
+  if (typeof value === "string") {
+    return `"${value}"`;
+  }
+
+  return value === undefined ? "missing" : "a non-string value";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -111,4 +135,53 @@ export function parseSessionNewResult(value: unknown): string {
   }
 
   return value.sessionId;
+}
+
+/**
+ * Normalize the stop reason from a `session/prompt` result.
+ *
+ * Only the two proven reasons map to a Domino stop reason. Anything else fails
+ * instead of being reported as a completed turn.
+ */
+export function parsePromptResult(value: unknown): PromptStopReason {
+  const stopReason = isRecord(value) ? value.stopReason : undefined;
+
+  if (stopReason === "end_turn") {
+    return "completed";
+  }
+
+  if (stopReason === "cancelled") {
+    return "cancelled";
+  }
+
+  throw new AcpUnsupportedStopReasonError(stopReason);
+}
+
+/**
+ * Extract the text of a `session/update` text chunk for one session.
+ *
+ * Returns `null` for another session, a different update kind, or a payload
+ * without text. The raw ACP update never leaves the adapter.
+ */
+export function extractAgentTextChunk(
+  sessionId: string,
+  params: unknown,
+): string | null {
+  if (!isRecord(params) || params.sessionId !== sessionId) {
+    return null;
+  }
+
+  const update = params.update;
+
+  if (!isRecord(update) || update.sessionUpdate !== "agent_message_chunk") {
+    return null;
+  }
+
+  const content = update.content;
+
+  if (!isRecord(content) || typeof content.text !== "string") {
+    return null;
+  }
+
+  return content.text;
 }

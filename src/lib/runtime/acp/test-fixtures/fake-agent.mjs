@@ -137,6 +137,96 @@ async function handleMessage(message) {
 
       send({ jsonrpc: "2.0", id, result: {} });
       return;
+    case "session/prompt": {
+      const sessionId = params?.sessionId;
+
+      const stream = (text, targetSessionId = sessionId) =>
+        send({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: targetSessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text },
+            },
+          },
+        });
+
+      const respond = (result) => send({ jsonrpc: "2.0", id, result });
+
+      if (mode === "prompt-error") {
+        send({
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: -32000,
+            message: "scripted prompt failure",
+            data: { detail: "nope" },
+          },
+        });
+        return;
+      }
+
+      if (mode === "prompt-empty") {
+        respond({ stopReason: "end_turn" });
+        return;
+      }
+
+      if (mode === "prompt-noise") {
+        stream("foreign", "fake-acp-session-999");
+        send({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId,
+            update: {
+              sessionUpdate: "agent_thought_chunk",
+              content: { type: "text", text: "thinking" },
+            },
+          },
+        });
+        send({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "image", data: "ignored" },
+            },
+          },
+        });
+        stream("kept");
+        respond({ stopReason: "end_turn" });
+        return;
+      }
+
+      if (mode === "prompt-late-update") {
+        stream("early");
+        respond({ stopReason: "end_turn" });
+        setTimeout(() => stream("late"), 50);
+        return;
+      }
+
+      if (mode === "prompt-slow") {
+        stream("slow");
+        setTimeout(() => respond({ stopReason: "end_turn" }), 100);
+        return;
+      }
+
+      stream("Hello");
+      stream(" world");
+      respond({
+        stopReason:
+          mode === "prompt-cancelled"
+            ? "cancelled"
+            : mode === "prompt-unknown-stop"
+              ? "max_tokens"
+              : "end_turn",
+      });
+      return;
+    }
     case "echo":
       send({ jsonrpc: "2.0", id, result: { params } });
       return;

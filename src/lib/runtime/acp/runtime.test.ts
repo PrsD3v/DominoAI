@@ -3,9 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentRuntime } from "@/types/runtime";
+import type { AgentRuntime, RuntimeEvent } from "@/types/runtime";
 import { UnsupportedCapabilityError } from "../../../types/runtime";
-import { AcpProtocolError, AcpUnsupportedProtocolError } from "./protocol";
+import {
+  AcpProtocolError,
+  AcpUnsupportedProtocolError,
+  AcpUnsupportedStopReasonError,
+} from "./protocol";
 import { createAcpRuntime } from "./runtime";
 import { JsonRpcError, TransportClosedError } from "./transport";
 
@@ -322,17 +326,178 @@ describe("session lifecycle", () => {
       runtime.createSession({ workspaceRoot: WORKSPACE }),
     ).rejects.toBeInstanceOf(AcpProtocolError);
   });
+});
 
-  it("leaves prompt unimplemented without a wire call", async () => {
+describe("session prompt", () => {
+  async function startSession(mode?: string, logFile?: string) {
+    const runtime = await start({ mode, logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    return { runtime, session };
+  }
+
+  it("sends the exact params and streams ordered text deltas", async () => {
     const directory = await makeTempDir();
     const logFile = join(directory, "agent.log");
-    const runtime = await start({ logFile });
-    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+    const { session } = await startSession(undefined, logFile);
+    const events: RuntimeEvent[] = [];
+
+    const result = await session.prompt({
+      text: "hello",
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(result).toEqual({ text: "Hello world", stopReason: "completed" });
+    expect(events).toEqual([
+      { type: "assistant_text_delta", text: "Hello" },
+      { type: "assistant_text_delta", text: " world" },
+    ]);
+
+    const prompts = methods(await readLog(logFile), "session/prompt");
+
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]?.params).toEqual({
+      sessionId: session.id,
+      prompt: [{ type: "text", text: "hello" }],
+    });
+  });
+
+  it("maps the cancelled stop reason", async () => {
+    const { session } = await startSession("prompt-cancelled");
+
+    const result = await session.prompt({ text: "stop", onEvent: () => {} });
+
+    expect(result).toEqual({ text: "Hello world", stopReason: "cancelled" });
+  });
+
+  it("rejects an unproven stop reason with the reported value", async () => {
+    const { session } = await startSession("prompt-unknown-stop");
+
+    const error = await session
+      .prompt({ text: "hello", onEvent: () => {} })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(AcpUnsupportedStopReasonError);
+    expect(error).toMatchObject({ reportedStopReason: "max_tokens" });
+  });
+
+  it("propagates a prompt error", async () => {
+    const { session } = await startSession("prompt-error");
+
+    const error = await session
+      .prompt({ text: "hello", onEvent: () => {} })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(JsonRpcError);
+    expect(error).toMatchObject({
+      method: "session/prompt",
+      code: -32000,
+      message: "scripted prompt failure",
+    });
+  });
+
+  it("returns empty text when the turn has no chunks", async () => {
+    const { session } = await startSession("prompt-empty");
+    const events: RuntimeEvent[] = [];
+
+    const result = await session.prompt({
+      text: "hello",
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(result).toEqual({ text: "", stopReason: "completed" });
+    expect(events).toEqual([]);
+  });
+
+  it("ignores foreign sessions, other update kinds, and non-text content", async () => {
+    const { session } = await startSession("prompt-noise");
+    const events: RuntimeEvent[] = [];
+
+    const result = await session.prompt({
+      text: "hello",
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(result).toEqual({ text: "kept", stopReason: "completed" });
+    expect(events).toEqual([{ type: "assistant_text_delta", text: "kept" }]);
+  });
+
+  it("rejects a second prompt while one is active", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const { session } = await startSession("prompt-slow", logFile);
+
+    const first = session.prompt({ text: "first", onEvent: () => {} });
+
+    await expect(
+      session.prompt({ text: "second", onEvent: () => {} }),
+    ).rejects.toThrow("active prompt");
+
+    await expect(first).resolves.toEqual({
+      text: "slow",
+      stopReason: "completed",
+    });
+    expect(methods(await readLog(logFile), "session/prompt")).toHaveLength(1);
+  });
+
+  it("rejects a prompt after session close without a wire call", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const { session } = await startSession(undefined, logFile);
+
+    await session.close();
 
     await expect(
       session.prompt({ text: "hello", onEvent: () => {} }),
-    ).rejects.toThrow("feature 4");
-
+    ).rejects.toThrow("session is closed");
     expect(methods(await readLog(logFile), "session/prompt")).toHaveLength(0);
+  });
+
+  it("rejects a prompt after runtime shutdown without a wire call", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const { runtime, session } = await startSession(undefined, logFile);
+
+    await runtime.close();
+
+    const error = await session
+      .prompt({ text: "hello", onEvent: () => {} })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(TransportClosedError);
+    expect(error).toMatchObject({
+      method: "session/prompt",
+      close: { kind: "shutdown" },
+    });
+    expect(methods(await readLog(logFile), "session/prompt")).toHaveLength(0);
+  });
+
+  it("emits no event after the prompt settles", async () => {
+    const { session } = await startSession("prompt-late-update");
+    const events: RuntimeEvent[] = [];
+
+    const result = await session.prompt({
+      text: "hello",
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(result).toEqual({ text: "early", stopReason: "completed" });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    expect(events).toEqual([{ type: "assistant_text_delta", text: "early" }]);
+  });
+
+  it("keeps accumulated text when the event callback throws", async () => {
+    const { session } = await startSession();
+
+    const result = await session.prompt({
+      text: "hello",
+      onEvent: () => {
+        throw new Error("callback boom");
+      },
+    });
+
+    expect(result).toEqual({ text: "Hello world", stopReason: "completed" });
   });
 });

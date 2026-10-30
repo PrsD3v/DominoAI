@@ -1,6 +1,7 @@
 import type {
   AgentRuntime,
   CreateSessionRequest,
+  PromptRequest,
   PromptResult,
   RuntimeAgentInfo,
   RuntimeCapabilities,
@@ -9,7 +10,9 @@ import type {
 import { UnsupportedCapabilityError } from "../../../types/runtime";
 import {
   ACP_PROTOCOL_VERSION,
+  extractAgentTextChunk,
   parseInitializeResult,
+  parsePromptResult,
   parseSessionNewResult,
   type InitializeParams,
 } from "./protocol";
@@ -103,6 +106,7 @@ function createRuntime(
   const createSessionObject = (id: string): Session => {
     let closed = false;
     let closing: Promise<void> | null = null;
+    let prompting = false;
 
     const closeSession = (): Promise<void> => {
       if (closed) {
@@ -139,8 +143,50 @@ function createRuntime(
 
     return {
       id,
-      async prompt(): Promise<PromptResult> {
-        throw new Error("session/prompt is implemented in feature 4");
+      async prompt(request: PromptRequest): Promise<PromptResult> {
+        assertOpen("session/prompt");
+
+        if (closed) {
+          throw new Error("Cannot prompt: session is closed");
+        }
+
+        if (prompting) {
+          throw new Error("Cannot prompt: session already has an active prompt");
+        }
+
+        prompting = true;
+
+        const chunks: string[] = [];
+
+        const unsubscribe = transport.onNotification((method, params) => {
+          if (method !== "session/update") {
+            return;
+          }
+
+          const text = extractAgentTextChunk(id, params);
+
+          if (text === null) {
+            return;
+          }
+
+          chunks.push(text);
+          request.onEvent({ type: "assistant_text_delta", text });
+        });
+
+        try {
+          const result = await transport.request<unknown>("session/prompt", {
+            sessionId: id,
+            prompt: [{ type: "text", text: request.text }],
+          });
+
+          return {
+            text: chunks.join(""),
+            stopReason: parsePromptResult(result),
+          };
+        } finally {
+          unsubscribe();
+          prompting = false;
+        }
       },
       close: closeSession,
     };

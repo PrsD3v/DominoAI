@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   AcpProtocolError,
   AcpUnsupportedProtocolError,
+  AcpUnsupportedStopReasonError,
+  extractAgentTextChunk,
   parseInitializeResult,
+  parsePromptResult,
   parseSessionNewResult,
 } from "./protocol";
 
@@ -179,6 +182,130 @@ describe("parseSessionNewResult", () => {
       expect(() => parseSessionNewResult({ sessionId })).toThrow(
         AcpProtocolError,
       );
+    }
+  });
+});
+
+describe("parsePromptResult", () => {
+  it("maps end_turn to completed", () => {
+    expect(parsePromptResult({ stopReason: "end_turn" })).toBe("completed");
+  });
+
+  it("maps cancelled to cancelled", () => {
+    expect(parsePromptResult({ stopReason: "cancelled" })).toBe("cancelled");
+  });
+
+  it("ignores extra result fields", () => {
+    expect(
+      parsePromptResult({ stopReason: "end_turn", usage: { input: 1 } }),
+    ).toBe("completed");
+  });
+
+  it("rejects a missing stop reason and records it", () => {
+    const error = (() => {
+      try {
+        parsePromptResult({});
+        return null;
+      } catch (caught) {
+        return caught;
+      }
+    })();
+
+    expect(error).toBeInstanceOf(AcpUnsupportedStopReasonError);
+    expect(error).toBeInstanceOf(AcpProtocolError);
+    expect(error).toMatchObject({
+      name: "AcpUnsupportedStopReasonError",
+      reportedStopReason: undefined,
+    });
+  });
+
+  it("rejects an unproven stop reason and keeps the reported value", () => {
+    const error = (() => {
+      try {
+        parsePromptResult({ stopReason: "max_tokens" });
+        return null;
+      } catch (caught) {
+        return caught;
+      }
+    })();
+
+    expect(error).toBeInstanceOf(AcpUnsupportedStopReasonError);
+    expect(error).toMatchObject({ reportedStopReason: "max_tokens" });
+  });
+
+  it("rejects a non-string stop reason", () => {
+    for (const stopReason of [null, 1, true, {}, []]) {
+      expect(() => parsePromptResult({ stopReason })).toThrow(
+        AcpUnsupportedStopReasonError,
+      );
+    }
+  });
+
+  it("rejects a non-object result", () => {
+    for (const value of [null, [], "end_turn", 1]) {
+      expect(() => parsePromptResult(value)).toThrow(
+        AcpUnsupportedStopReasonError,
+      );
+    }
+  });
+});
+
+describe("extractAgentTextChunk", () => {
+  const textChunk = (text: string, sessionId = "session-1") => ({
+    sessionId,
+    update: {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text },
+    },
+  });
+
+  it("returns the text for this session's text chunk", () => {
+    expect(extractAgentTextChunk("session-1", textChunk("hello"))).toBe("hello");
+  });
+
+  it("returns an empty string for an empty text chunk", () => {
+    expect(extractAgentTextChunk("session-1", textChunk(""))).toBe("");
+  });
+
+  it("ignores another session", () => {
+    expect(
+      extractAgentTextChunk("session-1", textChunk("hello", "session-2")),
+    ).toBeNull();
+  });
+
+  it("ignores another update kind", () => {
+    expect(
+      extractAgentTextChunk("session-1", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "thinking" },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores content without text", () => {
+    for (const content of [
+      undefined,
+      null,
+      "hello",
+      {},
+      { type: "text" },
+      { type: "text", text: 1 },
+    ]) {
+      expect(
+        extractAgentTextChunk("session-1", {
+          sessionId: "session-1",
+          update: { sessionUpdate: "agent_message_chunk", content },
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it("ignores malformed params", () => {
+    for (const params of [null, undefined, [], "session-1", 1, {}]) {
+      expect(extractAgentTextChunk("session-1", params)).toBeNull();
     }
   });
 });
