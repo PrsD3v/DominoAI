@@ -56,6 +56,8 @@ export interface PromptResult {
 export interface Session {
   readonly id: string;
   prompt(request: PromptRequest): Promise<PromptResult>;
+  /** Request cancellation of the active prompt; the prompt result is the only evidence. */
+  cancel(): void;
   close(): Promise<void>;
 }
 

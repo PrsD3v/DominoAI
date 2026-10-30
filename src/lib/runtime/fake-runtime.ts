@@ -49,6 +49,7 @@ export function createFakeRuntime(turns: FakeTurn[] = []): AgentRuntime {
             stopReason: turn.stopReason ?? "completed",
           };
         },
+        cancel(): void {},
         async close(): Promise<void> {},
       };
     },

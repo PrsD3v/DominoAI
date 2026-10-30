@@ -107,6 +107,7 @@ function createRuntime(
     let closed = false;
     let closing: Promise<void> | null = null;
     let prompting = false;
+    let cancelSent = false;
 
     const closeSession = (): Promise<void> => {
       if (closed) {
@@ -155,6 +156,7 @@ function createRuntime(
         }
 
         prompting = true;
+        cancelSent = false;
 
         const chunks: string[] = [];
 
@@ -186,7 +188,16 @@ function createRuntime(
         } finally {
           unsubscribe();
           prompting = false;
+          cancelSent = false;
         }
+      },
+      cancel(): void {
+        if (state !== "open" || closed || !prompting || cancelSent) {
+          return;
+        }
+
+        cancelSent = true;
+        transport.notify("session/cancel", { sessionId: id });
       },
       close: closeSession,
     };

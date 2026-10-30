@@ -11,7 +11,11 @@ import {
   AcpUnsupportedStopReasonError,
 } from "./protocol";
 import { createAcpRuntime } from "./runtime";
-import { JsonRpcError, TransportClosedError } from "./transport";
+import {
+  JsonRpcError,
+  TransportClosedError,
+  TransportTimeoutError,
+} from "./transport";
 
 const FIXTURE = fileURLToPath(
   new URL("./test-fixtures/fake-agent.mjs", import.meta.url),
@@ -36,6 +40,7 @@ interface StartOptions {
   mode?: string;
   pidFile?: string;
   logFile?: string;
+  requestTimeoutMs?: number;
 }
 
 async function start(options: StartOptions = {}): Promise<AgentRuntime> {
@@ -49,6 +54,7 @@ async function start(options: StartOptions = {}): Promise<AgentRuntime> {
       ...(options.logFile ? { FAKE_AGENT_LOG_FILE: options.logFile } : {}),
     },
     shutdownGraceMs: 100,
+    requestTimeoutMs: options.requestTimeoutMs,
   });
 
   active.push(runtime);
@@ -329,8 +335,12 @@ describe("session lifecycle", () => {
 });
 
 describe("session prompt", () => {
-  async function startSession(mode?: string, logFile?: string) {
-    const runtime = await start({ mode, logFile });
+  async function startSession(
+    mode?: string,
+    logFile?: string,
+    requestTimeoutMs?: number,
+  ) {
+    const runtime = await start({ mode, logFile, requestTimeoutMs });
     const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
 
     return { runtime, session };
@@ -499,5 +509,193 @@ describe("session prompt", () => {
     });
 
     expect(result).toEqual({ text: "Hello world", stopReason: "completed" });
+  });
+});
+
+describe("session cancel", () => {
+  async function startSession(mode?: string, logFile?: string) {
+    const runtime = await start({ mode, logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    return { runtime, session };
+  }
+
+  it("sends one cancel notification and reports the cancelled result", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const { session } = await startSession("prompt-cancel", logFile);
+    const events: RuntimeEvent[] = [];
+
+    const pending = session.prompt({
+      text: "stop",
+      onEvent: (event) => events.push(event),
+    });
+
+    session.cancel();
+
+    await expect(pending).resolves.toEqual({
+      text: "partial",
+      stopReason: "cancelled",
+    });
+    expect(events).toEqual([{ type: "assistant_text_delta", text: "partial" }]);
+
+    const cancels = methods(await readLog(logFile), "session/cancel");
+
+    expect(cancels).toHaveLength(1);
+    expect(cancels[0]).toEqual({
+      jsonrpc: "2.0",
+      method: "session/cancel",
+      params: { sessionId: session.id },
+    });
+  });
+
+  it("sends at most one cancel notification per active prompt", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const { session } = await startSession("prompt-cancel", logFile);
+
+    const pending = session.prompt({ text: "stop", onEvent: () => {} });
+
+    session.cancel();
+    session.cancel();
+
+    await expect(pending).resolves.toMatchObject({ stopReason: "cancelled" });
+    expect(methods(await readLog(logFile), "session/cancel")).toHaveLength(1);
+  });
+
+  it("keeps the real result when the agent ignores the cancel", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const { session } = await startSession("prompt-cancel-ignored", logFile);
+
+    const pending = session.prompt({ text: "stop", onEvent: () => {} });
+
+    session.cancel();
+
+    await expect(pending).resolves.toEqual({
+      text: "partial",
+      stopReason: "completed",
+    });
+    expect(methods(await readLog(logFile), "session/cancel")).toHaveLength(1);
+  });
+
+  it("does nothing when no prompt is active", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const { session } = await startSession(undefined, logFile);
+
+    expect(() => session.cancel()).not.toThrow();
+
+    await session.prompt({ text: "hello", onEvent: () => {} });
+    session.cancel();
+
+    await session.close();
+    expect(() => session.cancel()).not.toThrow();
+
+    expect(methods(await readLog(logFile), "session/cancel")).toHaveLength(0);
+  });
+});
+
+describe("prompt failure safety", () => {
+  it("rejects a timed-out prompt and clears the active-prompt guard", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({
+      mode: "prompt-silent",
+      logFile,
+      requestTimeoutMs: 500,
+    });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    const started = Date.now();
+
+    await expect(
+      session.prompt({ text: "wait", onEvent: () => {} }),
+    ).rejects.toBeInstanceOf(TransportTimeoutError);
+    await expect(
+      session.prompt({ text: "again", onEvent: () => {} }),
+    ).rejects.toBeInstanceOf(TransportTimeoutError);
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+
+    await expect(session.close()).resolves.toBeUndefined();
+    expect(methods(await readLog(logFile), "session/close")).toHaveLength(1);
+  });
+
+  it("emits no event after a timed-out prompt settles", async () => {
+    const runtime = await start({
+      mode: "prompt-late-after-timeout",
+      requestTimeoutMs: 500,
+    });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+    const events: RuntimeEvent[] = [];
+
+    await expect(
+      session.prompt({
+        text: "wait",
+        onEvent: (event) => events.push(event),
+      }),
+    ).rejects.toBeInstanceOf(TransportTimeoutError);
+
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    expect(events).toEqual([{ type: "assistant_text_delta", text: "early" }]);
+  });
+
+  it("rejects an active prompt when the child crashes", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ mode: "prompt-crash", logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    const error = await session
+      .prompt({ text: "die", onEvent: () => {} })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(TransportClosedError);
+    expect(error).toMatchObject({
+      method: "session/prompt",
+      close: { kind: "exit", code: 1, signal: null },
+    });
+
+    await expect(
+      session.prompt({ text: "again", onEvent: () => {} }),
+    ).rejects.toBeInstanceOf(TransportClosedError);
+  });
+
+  it("rejects an active prompt when the child ends stdout", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ mode: "prompt-eof", logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    const error = await session
+      .prompt({ text: "gone", onEvent: () => {} })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(TransportClosedError);
+    expect((error as TransportClosedError).close.kind).toBe("exit");
+
+    await expect(
+      runtime.createSession({ workspaceRoot: WORKSPACE }),
+    ).rejects.toBeInstanceOf(TransportClosedError);
+  });
+
+  it("rejects an active prompt when the runtime closes", async () => {
+    const runtime = await start({ mode: "prompt-silent" });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    const pending = session.prompt({ text: "wait", onEvent: () => {} });
+    const closing = runtime.close();
+
+    const error = await pending.catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(TransportClosedError);
+    expect(error).toMatchObject({
+      method: "session/prompt",
+      close: { kind: "shutdown" },
+    });
+
+    await closing;
   });
 });

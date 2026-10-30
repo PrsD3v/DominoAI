@@ -276,8 +276,9 @@ decided.
   folds this screen into the dashboard
 
 Every stop, cancel, and approval action names the run and step it affects. A
-cancelled or interrupted run is visually distinct from a completed one, and
-failures show the runtime's real error.
+cancelled or interrupted run is visually distinct from a completed one,
+failures show the runtime's real error, and the interface is keyboard reachable
+because the audience is developers.
 
 ### Language and direction
 
@@ -371,16 +372,14 @@ outside the MVP.
 Each is assigned to the feature that settles it. None blocks feature 1.
 
 1. SQLite driver, migration approach, and schema details - feature 10
-2. Event retention policy - feature 10
-3. Skill delivery mechanism - feature 13
+2. Event retention policy for runtime events - feature 10
+3. How skill content reaches the runtime without a permanent project install -
+   feature 13
 4. Dashboard event transport and reconnect behavior, SSE suggested - feature 14
 5. Whether Blueprint definitions are consumed as-is or mapped - feature 12
 6. Packaging and install path - post-MVP, with release automation
 7. Whether the theme follows the OS only or exposes an explicit light/dark toggle
    - feature 14
-8. Runtime Profile persistence and migration - Feature 11A Stage 4; blocked until
-   Features 9 and 10 exist
-9. Live Reasonix session creation and close, plus the real connection test -
-   Feature 3B; requires a disposable credential and Feature 4
-10. Credential path, permissions, and atomic replacement on Windows and macOS -
-    Feature 11A
+8. Credential file path, permissions, and atomic replacement on Windows and macOS
+   - feature 11A
+9. Connection test cost, timeout, and error categories - feature 11A

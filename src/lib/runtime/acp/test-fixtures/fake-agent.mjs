@@ -22,6 +22,7 @@ function logMessage(message) {
 }
 
 const clientRequests = new Map();
+const pendingPrompts = new Map();
 
 let flooded = null;
 let nextSessionId = 1;
@@ -79,6 +80,21 @@ async function handleMessage(message) {
   }
 
   const { id, method, params } = message;
+
+  if (method === "session/cancel") {
+    const pending = pendingPrompts.get(params?.sessionId);
+
+    if (mode === "prompt-cancel" && pending) {
+      pendingPrompts.delete(params.sessionId);
+      send({
+        jsonrpc: "2.0",
+        id: pending.id,
+        result: { stopReason: "cancelled" },
+      });
+    }
+
+    return;
+  }
 
   if (id === undefined) {
     return;
@@ -154,6 +170,41 @@ async function handleMessage(message) {
         });
 
       const respond = (result) => send({ jsonrpc: "2.0", id, result });
+
+      if (mode === "prompt-cancel") {
+        pendingPrompts.set(sessionId, { id });
+        stream("partial");
+        return;
+      }
+
+      if (mode === "prompt-cancel-ignored") {
+        stream("partial");
+        setTimeout(() => respond({ stopReason: "end_turn" }), 50);
+        return;
+      }
+
+      if (mode === "prompt-silent") {
+        return;
+      }
+
+      if (mode === "prompt-late-after-timeout") {
+        stream("early");
+        setTimeout(() => stream("late"), 700);
+        return;
+      }
+
+      if (mode === "prompt-crash") {
+        stream("partial");
+        setTimeout(() => process.exit(1), 10);
+        return;
+      }
+
+      if (mode === "prompt-eof") {
+        stream("partial");
+        process.stdout.end();
+        setInterval(() => {}, 1_000);
+        return;
+      }
 
       if (mode === "prompt-error") {
         send({

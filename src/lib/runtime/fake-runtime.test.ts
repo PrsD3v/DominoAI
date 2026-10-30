@@ -68,6 +68,18 @@ describe("createFakeRuntime", () => {
     ).rejects.toThrow("fake runtime has no scripted turn");
   });
 
+  it("treats cancel as a no-op when no prompt is active", async () => {
+    const runtime = createFakeRuntime([{ deltas: ["done"] }]);
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    expect(() => session.cancel()).not.toThrow();
+
+    const result = await session.prompt({ text: "One", onEvent: () => {} });
+
+    expect(result).toEqual({ text: "done", stopReason: "completed" });
+    expect(() => session.cancel()).not.toThrow();
+  });
+
   it("reports a stable capability snapshot", () => {
     const runtime = createFakeRuntime();
 
