@@ -334,6 +334,387 @@ describe("session lifecycle", () => {
   });
 });
 
+describe("session list", () => {
+  it("lists normalized summaries and preserves order", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+
+    const summaries = await runtime.listSessions();
+
+    expect(summaries).toEqual([
+      {
+        id: "fake-listed-session-1",
+        workspaceRoot: "/tmp/domino-fake-workspace",
+        title: "First listed session",
+        updatedAt: "2026-10-30T01:02:03Z",
+      },
+      {
+        id: "fake-listed-session-2",
+        workspaceRoot: "/tmp/other-workspace",
+        title: "",
+        updatedAt: "2026-10-29T04:05:06Z",
+      },
+    ]);
+
+    const log = await readLog(logFile);
+
+    expect(methods(log, "session/list")).toHaveLength(1);
+    expect(methods(log, "session/list")[0]?.params).toEqual({});
+  });
+
+  it("returns an empty list", async () => {
+    const runtime = await start({ mode: "list-empty" });
+
+    await expect(runtime.listSessions()).resolves.toEqual([]);
+  });
+
+  it("rejects a malformed list result", async () => {
+    const runtime = await start({ mode: "list-malformed" });
+
+    await expect(runtime.listSessions()).rejects.toBeInstanceOf(
+      AcpProtocolError,
+    );
+  });
+
+  it("refuses to list when the runtime did not advertise the capability", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ mode: "no-list-capability", logFile });
+
+    expect(runtime.capabilities.sessions.list).toBe(false);
+
+    const error = await runtime.listSessions().catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(UnsupportedCapabilityError);
+    expect(error).toMatchObject({
+      name: "UnsupportedCapabilityError",
+      capability: "sessions.list",
+    });
+    expect(methods(await readLog(logFile), "session/list")).toHaveLength(0);
+  });
+
+  it("rejects list after runtime shutdown without a wire call", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+
+    await runtime.close();
+
+    const error = await runtime.listSessions().catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(TransportClosedError);
+    expect(error).toMatchObject({
+      method: "session/list",
+      close: { kind: "shutdown" },
+    });
+    expect(methods(await readLog(logFile), "session/list")).toHaveLength(0);
+  });
+});
+
+describe("session resume", () => {
+  it("resumes with exact params and closes the returned session", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+
+    const session = await runtime.resumeSession({
+      sessionId: "persisted-session-1",
+      workspaceRoot: WORKSPACE,
+    });
+
+    expect(session.id).toBe("persisted-session-1");
+
+    await session.close();
+
+    const log = await readLog(logFile);
+
+    expect(methods(log, "session/resume")).toHaveLength(1);
+    expect(methods(log, "session/resume")[0]?.params).toEqual({
+      sessionId: "persisted-session-1",
+      cwd: WORKSPACE,
+      mcpServers: [],
+    });
+    expect(methods(log, "session/load")).toHaveLength(0);
+    expect(methods(log, "session/close")[0]?.params).toEqual({
+      sessionId: "persisted-session-1",
+    });
+  });
+
+  it("does not buffer resume updates into a later prompt", async () => {
+    const runtime = await start({ mode: "resume-decoy" });
+    const session = await runtime.resumeSession({
+      sessionId: "persisted-session-1",
+      workspaceRoot: WORKSPACE,
+    });
+    const events: RuntimeEvent[] = [];
+
+    const result = await session.prompt({
+      text: "Hello",
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(events).toEqual([
+      { type: "assistant_text_delta", text: "Hello" },
+      { type: "assistant_text_delta", text: " world" },
+    ]);
+    expect(result).toEqual({ text: "Hello world", stopReason: "completed" });
+  });
+
+  it("propagates a resume error", async () => {
+    const runtime = await start({ mode: "resume-error" });
+
+    await expect(
+      runtime.resumeSession({
+        sessionId: "persisted-session-1",
+        workspaceRoot: WORKSPACE,
+      }),
+    ).rejects.toBeInstanceOf(JsonRpcError);
+  });
+
+  it("refuses to resume when the runtime did not advertise the capability", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ mode: "no-resume-capability", logFile });
+
+    expect(runtime.capabilities.sessions.resume).toBe(false);
+
+    const error = await runtime
+      .resumeSession({
+        sessionId: "persisted-session-1",
+        workspaceRoot: WORKSPACE,
+      })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(UnsupportedCapabilityError);
+    expect(error).toMatchObject({
+      name: "UnsupportedCapabilityError",
+      capability: "sessions.resume",
+    });
+    expect(methods(await readLog(logFile), "session/resume")).toHaveLength(0);
+  });
+
+  it("rejects resume after runtime shutdown without a wire call", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+
+    await runtime.close();
+
+    const error = await runtime
+      .resumeSession({
+        sessionId: "persisted-session-1",
+        workspaceRoot: WORKSPACE,
+      })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(TransportClosedError);
+    expect(error).toMatchObject({
+      method: "session/resume",
+      close: { kind: "shutdown" },
+    });
+    expect(methods(await readLog(logFile), "session/resume")).toHaveLength(0);
+  });
+});
+
+describe("session load", () => {
+  it("loads with exact params and returns a usable session", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+
+    const session = await runtime.loadSession({
+      sessionId: "persisted-session-1",
+      workspaceRoot: WORKSPACE,
+      onEvent: () => {},
+    });
+
+    expect(session.id).toBe("persisted-session-1");
+
+    const result = await session.prompt({
+      text: "Hello",
+      onEvent: () => {},
+    });
+
+    expect(result).toEqual({ text: "Hello world", stopReason: "completed" });
+
+    await session.close();
+
+    const log = await readLog(logFile);
+
+    expect(methods(log, "session/load")).toHaveLength(1);
+    expect(methods(log, "session/load")[0]?.params).toEqual({
+      sessionId: "persisted-session-1",
+      cwd: WORKSPACE,
+      mcpServers: [],
+    });
+    expect(methods(log, "session/resume")).toHaveLength(0);
+    expect(methods(log, "session/close")[0]?.params).toEqual({
+      sessionId: "persisted-session-1",
+    });
+  });
+
+  it("emits assistant history in order and ignores other update kinds", async () => {
+    const runtime = await start();
+    const events: RuntimeEvent[] = [];
+
+    await runtime.loadSession({
+      sessionId: "persisted-session-1",
+      workspaceRoot: WORKSPACE,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(events).toEqual([
+      { type: "assistant_text_delta", text: "earlier " },
+      { type: "assistant_text_delta", text: "answer" },
+    ]);
+  });
+
+  it("accepts an empty history", async () => {
+    const runtime = await start({ mode: "load-empty" });
+    const events: RuntimeEvent[] = [];
+
+    const session = await runtime.loadSession({
+      sessionId: "persisted-session-1",
+      workspaceRoot: WORKSPACE,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(session.id).toBe("persisted-session-1");
+    expect(events).toEqual([]);
+  });
+
+  it("propagates a load error", async () => {
+    const runtime = await start({ mode: "load-error" });
+
+    await expect(
+      runtime.loadSession({
+        sessionId: "persisted-session-1",
+        workspaceRoot: WORKSPACE,
+        onEvent: () => {},
+      }),
+    ).rejects.toBeInstanceOf(JsonRpcError);
+  });
+
+  it("emits no history event after the load settles", async () => {
+    const runtime = await start({ mode: "load-late-update" });
+    const events: RuntimeEvent[] = [];
+
+    await runtime.loadSession({
+      sessionId: "persisted-session-1",
+      workspaceRoot: WORKSPACE,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(events).toEqual([
+      { type: "assistant_text_delta", text: "earlier " },
+      { type: "assistant_text_delta", text: "answer" },
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(events).toEqual([
+      { type: "assistant_text_delta", text: "earlier " },
+      { type: "assistant_text_delta", text: "answer" },
+    ]);
+  });
+
+  it("keeps loading when the event callback throws", async () => {
+    const runtime = await start();
+    const events: RuntimeEvent[] = [];
+
+    const session = await runtime.loadSession({
+      sessionId: "persisted-session-1",
+      workspaceRoot: WORKSPACE,
+      onEvent: (event) => {
+        events.push(event);
+        throw new Error("listener failure");
+      },
+    });
+
+    expect(session.id).toBe("persisted-session-1");
+    expect(events).toEqual([
+      { type: "assistant_text_delta", text: "earlier " },
+      { type: "assistant_text_delta", text: "answer" },
+    ]);
+  });
+
+  it("refuses to load when the runtime did not advertise the capability", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ mode: "no-load-capability", logFile });
+
+    expect(runtime.capabilities.loadSession).toBe(false);
+
+    const error = await runtime
+      .loadSession({
+        sessionId: "persisted-session-1",
+        workspaceRoot: WORKSPACE,
+        onEvent: () => {},
+      })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(UnsupportedCapabilityError);
+    expect(error).toMatchObject({
+      name: "UnsupportedCapabilityError",
+      capability: "loadSession",
+    });
+    expect(methods(await readLog(logFile), "session/load")).toHaveLength(0);
+  });
+
+  it("rejects load after runtime shutdown without a wire call", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+
+    await runtime.close();
+
+    const error = await runtime
+      .loadSession({
+        sessionId: "persisted-session-1",
+        workspaceRoot: WORKSPACE,
+        onEvent: () => {},
+      })
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(TransportClosedError);
+    expect(error).toMatchObject({
+      method: "session/load",
+      close: { kind: "shutdown" },
+    });
+    expect(methods(await readLog(logFile), "session/load")).toHaveLength(0);
+  });
+
+  it("keeps resume and load as distinct wire operations", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+    const loadedEvents: RuntimeEvent[] = [];
+
+    const resumed = await runtime.resumeSession({
+      sessionId: "resume-session",
+      workspaceRoot: WORKSPACE,
+    });
+    const loaded = await runtime.loadSession({
+      sessionId: "load-session",
+      workspaceRoot: WORKSPACE,
+      onEvent: (event) => loadedEvents.push(event),
+    });
+
+    expect(resumed.id).toBe("resume-session");
+    expect(loaded.id).toBe("load-session");
+    expect(loadedEvents).toEqual([
+      { type: "assistant_text_delta", text: "earlier " },
+      { type: "assistant_text_delta", text: "answer" },
+    ]);
+
+    const log = await readLog(logFile);
+
+    expect(methods(log, "session/resume")).toHaveLength(1);
+    expect(methods(log, "session/load")).toHaveLength(1);
+  });
+});
+
 describe("session prompt", () => {
   async function startSession(
     mode?: string,

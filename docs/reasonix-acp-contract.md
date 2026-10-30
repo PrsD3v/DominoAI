@@ -106,7 +106,7 @@ been exercised.
 | --- | --- | --- | --- |
 | Transport framing and correlation | an unknown method | Domino transport, 2026-10-29; replied `-32601` with `method not found: domino/transport-probe` | verified |
 | Handshake and capabilities | `initialize` | Re-run in this session, 2026-10-29; Domino `createAcpRuntime` live test reached a successful `initialize` on 2026-10-29 | verified |
-| Session summaries | `session/list` | Re-run in this session, 2026-10-29; returned `sessionId`, `cwd`, `title`, `updatedAt` | verified |
+| Session summaries | `session/list` | Domino live test `session-list.live.test.ts`, 2026-10-30; returned `sessionId`, `cwd`, `title`, `updatedAt` | verified |
 | Create session | `session/new` | PoC run, 2026-10-28; returned a `sessionId`. Domino live runs on 2026-10-29 and 2026-10-30 failed with a provider API key error before creating a session | PoC only; not verified through Domino |
 | Prompt and streaming | `session/prompt`, `session/update` | PoC run, 2026-10-28; text arrived through `session/update`, `stopReason: end_turn` | verified in the PoC, not re-run here |
 | Close session | `session/close` | PoC run, 2026-10-28. Domino live runs on 2026-10-29 and 2026-10-30 were not reached because session creation failed | PoC only; not verified through Domino |

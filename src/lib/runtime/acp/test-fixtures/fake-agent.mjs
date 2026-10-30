@@ -30,8 +30,8 @@ let closeAttempts = 0;
 
 function initializeResult() {
   const sessionCapabilities = {
-    list: {},
-    resume: {},
+    ...(mode === "no-list-capability" ? {} : { list: {} }),
+    ...(mode === "no-resume-capability" ? {} : { resume: {} }),
     ...(mode === "no-close-capability" ? {} : { close: {} }),
     delete: {},
     additionalDirectories: {},
@@ -40,7 +40,7 @@ function initializeResult() {
   return {
     protocolVersion: mode === "protocol-2" ? 2 : 1,
     agentCapabilities: {
-      loadSession: true,
+      loadSession: mode !== "no-load-capability",
       sessionCapabilities,
       promptCapabilities: { image: true, audio: false, embeddedContext: true },
       mcpCapabilities: { http: true, sse: false },
@@ -121,6 +121,41 @@ async function handleMessage(message) {
 
       send({ jsonrpc: "2.0", id, result: initializeResult() });
       return;
+    case "session/list": {
+      if (mode === "list-malformed") {
+        send({
+          jsonrpc: "2.0",
+          id,
+          result: { sessions: "not-an-array" },
+        });
+        return;
+      }
+
+      send({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          sessions:
+            mode === "list-empty"
+              ? []
+              : [
+                  {
+                    sessionId: "fake-listed-session-1",
+                    cwd: "/tmp/domino-fake-workspace",
+                    title: "First listed session",
+                    updatedAt: "2026-10-30T01:02:03Z",
+                  },
+                  {
+                    sessionId: "fake-listed-session-2",
+                    cwd: "/tmp/other-workspace",
+                    title: "",
+                    updatedAt: "2026-10-29T04:05:06Z",
+                  },
+                ],
+        },
+      });
+      return;
+    }
     case "session/new": {
       const result =
         mode === "malformed-session-new"
@@ -137,6 +172,89 @@ async function handleMessage(message) {
         respond();
       }
 
+      return;
+    }
+    case "session/load": {
+      const sessionId = params?.sessionId;
+      const streamText = (text, targetSessionId = sessionId) =>
+        send({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: targetSessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text },
+            },
+          },
+        });
+      const streamUpdate = (update, targetSessionId = sessionId) =>
+        send({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: targetSessionId, update },
+        });
+
+      if (mode === "load-error") {
+        send({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32000, message: "scripted load failure" },
+        });
+        return;
+      }
+
+      if (mode !== "load-empty") {
+        streamText("earlier ");
+        streamUpdate({
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "user asked" },
+        });
+        streamText("foreign", "fake-foreign-session");
+        streamUpdate({
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "thinking" },
+        });
+        streamUpdate({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "image", data: "ignored" },
+        });
+        streamText("answer");
+      }
+
+      send({ jsonrpc: "2.0", id, result: {} });
+
+      if (mode === "load-late-update") {
+        setTimeout(() => streamText("late"), 50);
+      }
+
+      return;
+    }
+    case "session/resume": {
+      if (mode === "resume-error") {
+        send({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32000, message: "scripted resume failure" },
+        });
+        return;
+      }
+
+      if (mode === "resume-decoy") {
+        send({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: params?.sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "resume decoy" },
+            },
+          },
+        });
+      }
+
+      send({ jsonrpc: "2.0", id, result: {} });
       return;
     }
     case "session/close":

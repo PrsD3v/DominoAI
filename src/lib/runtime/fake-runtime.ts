@@ -5,7 +5,9 @@ import type {
   PromptStopReason,
   RuntimeCapabilities,
   Session,
+  SessionSummary,
 } from "@/types/runtime";
+import { UnsupportedCapabilityError } from "../../types/runtime";
 
 export interface FakeTurn {
   deltas: string[];
@@ -26,6 +28,9 @@ export function createFakeRuntime(turns: FakeTurn[] = []): AgentRuntime {
 
   return {
     capabilities: FAKE_CAPABILITIES,
+    async listSessions(): Promise<SessionSummary[]> {
+      throw new UnsupportedCapabilityError("sessions.list");
+    },
     async createSession(): Promise<Session> {
       sessionCount += 1;
 
@@ -52,6 +57,12 @@ export function createFakeRuntime(turns: FakeTurn[] = []): AgentRuntime {
         cancel(): void {},
         async close(): Promise<void> {},
       };
+    },
+    async resumeSession(): Promise<Session> {
+      throw new UnsupportedCapabilityError("sessions.resume");
+    },
+    async loadSession(): Promise<Session> {
+      throw new UnsupportedCapabilityError("loadSession");
     },
     async close(): Promise<void> {},
   };

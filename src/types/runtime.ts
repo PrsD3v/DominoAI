@@ -43,6 +43,25 @@ export interface CreateSessionRequest {
   workspaceRoot: string;
 }
 
+/** A runtime session summary returned by session discovery. */
+export interface SessionSummary {
+  readonly id: string;
+  readonly workspaceRoot: string;
+  readonly title: string;
+  readonly updatedAt: string;
+}
+
+/** Reopen a persisted runtime session by id. */
+export interface SessionOpenRequest {
+  readonly sessionId: string;
+  readonly workspaceRoot: string;
+}
+
+/** Reopen a persisted runtime session and replay its assistant text history. */
+export interface LoadSessionRequest extends SessionOpenRequest {
+  readonly onEvent: (event: RuntimeEvent) => void;
+}
+
 export interface PromptRequest {
   text: string;
   onEvent: (event: RuntimeEvent) => void;
@@ -63,6 +82,9 @@ export interface Session {
 
 export interface AgentRuntime {
   readonly capabilities: RuntimeCapabilities;
+  listSessions(): Promise<SessionSummary[]>;
   createSession(request: CreateSessionRequest): Promise<Session>;
+  resumeSession(request: SessionOpenRequest): Promise<Session>;
+  loadSession(request: LoadSessionRequest): Promise<Session>;
   close(): Promise<void>;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentRuntime, RuntimeEvent } from "@/types/runtime";
+import { UnsupportedCapabilityError } from "../../types/runtime";
 import { createFakeRuntime } from "./fake-runtime";
 
 const WORKSPACE = "/tmp/domino-fake-workspace";
@@ -78,6 +79,37 @@ describe("createFakeRuntime", () => {
 
     expect(result).toEqual({ text: "done", stopReason: "completed" });
     expect(() => session.cancel()).not.toThrow();
+  });
+
+  it("rejects session discovery and reopening it does not advertise", async () => {
+    const runtime = createFakeRuntime();
+
+    for (const [operation, capability] of [
+      [runtime.listSessions(), "sessions.list"],
+      [
+        runtime.resumeSession({
+          sessionId: "fake-session-1",
+          workspaceRoot: WORKSPACE,
+        }),
+        "sessions.resume",
+      ],
+      [
+        runtime.loadSession({
+          sessionId: "fake-session-1",
+          workspaceRoot: WORKSPACE,
+          onEvent: () => {},
+        }),
+        "loadSession",
+      ],
+    ] as const) {
+      const error = await operation.catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(UnsupportedCapabilityError);
+      expect(error).toMatchObject({
+        name: "UnsupportedCapabilityError",
+        capability,
+      });
+    }
   });
 
   it("reports a stable capability snapshot", () => {

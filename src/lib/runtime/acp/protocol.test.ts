@@ -6,6 +6,7 @@ import {
   extractAgentTextChunk,
   parseInitializeResult,
   parsePromptResult,
+  parseSessionListResult,
   parseSessionNewResult,
 } from "./protocol";
 
@@ -182,6 +183,92 @@ describe("parseSessionNewResult", () => {
       expect(() => parseSessionNewResult({ sessionId })).toThrow(
         AcpProtocolError,
       );
+    }
+  });
+});
+
+describe("parseSessionListResult", () => {
+  const summary = {
+    sessionId: "session-1",
+    cwd: "/tmp/domino-workspace",
+    title: "A session",
+    updatedAt: "2026-10-30T00:00:00Z",
+  };
+
+  it("maps the observed list shape and preserves order", () => {
+    expect(
+      parseSessionListResult({
+        sessions: [
+          summary,
+          {
+            sessionId: "session-2",
+            cwd: "/tmp/other-workspace",
+            title: "",
+            updatedAt: "2026-10-29T00:00:00Z",
+            extra: true,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "session-1",
+        workspaceRoot: "/tmp/domino-workspace",
+        title: "A session",
+        updatedAt: "2026-10-30T00:00:00Z",
+      },
+      {
+        id: "session-2",
+        workspaceRoot: "/tmp/other-workspace",
+        title: "",
+        updatedAt: "2026-10-29T00:00:00Z",
+      },
+    ]);
+  });
+
+  it("accepts an empty list", () => {
+    expect(parseSessionListResult({ sessions: [] })).toEqual([]);
+  });
+
+  it("rejects a malformed result", () => {
+    for (const value of [
+      null,
+      [],
+      "sessions",
+      1,
+      {},
+      { sessions: null },
+      { sessions: {} },
+      { sessions: "session-1" },
+    ]) {
+      expect(() => parseSessionListResult(value)).toThrow(AcpProtocolError);
+    }
+  });
+
+  it("rejects a non-object entry", () => {
+    for (const entry of [null, [], "session-1", 1]) {
+      expect(() => parseSessionListResult({ sessions: [entry] })).toThrow(
+        AcpProtocolError,
+      );
+    }
+  });
+
+  it("rejects malformed entries", () => {
+    for (const override of [
+      { sessionId: undefined },
+      { sessionId: "" },
+      { sessionId: 1 },
+      { cwd: undefined },
+      { cwd: "" },
+      { cwd: 1 },
+      { title: undefined },
+      { title: 1 },
+      { updatedAt: undefined },
+      { updatedAt: "" },
+      { updatedAt: 1 },
+    ]) {
+      expect(() =>
+        parseSessionListResult({ sessions: [{ ...summary, ...override }] }),
+      ).toThrow(AcpProtocolError);
     }
   });
 });

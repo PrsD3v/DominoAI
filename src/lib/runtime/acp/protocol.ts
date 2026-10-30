@@ -2,6 +2,7 @@ import type {
   PromptStopReason,
   RuntimeAgentInfo,
   RuntimeCapabilities,
+  SessionSummary,
 } from "@/types/runtime";
 
 /** ACP protocol version this adapter understands. */
@@ -135,6 +136,56 @@ export function parseSessionNewResult(value: unknown): string {
   }
 
   return value.sessionId;
+}
+
+/** Normalize a `session/list` result into Domino session summaries. */
+export function parseSessionListResult(value: unknown): SessionSummary[] {
+  if (!isRecord(value) || !Array.isArray(value.sessions)) {
+    throw new AcpProtocolError(
+      "session/list result must include a sessions array",
+    );
+  }
+
+  return value.sessions.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new AcpProtocolError(
+        `session/list entry ${index} must be an object`,
+      );
+    }
+
+    const { sessionId, cwd, title, updatedAt } = entry;
+
+    if (!isNonEmptyString(sessionId)) {
+      throw new AcpProtocolError(
+        `session/list entry ${index} must include a non-empty sessionId`,
+      );
+    }
+
+    if (!isNonEmptyString(cwd)) {
+      throw new AcpProtocolError(
+        `session/list entry ${index} must include a non-empty cwd`,
+      );
+    }
+
+    if (typeof title !== "string") {
+      throw new AcpProtocolError(
+        `session/list entry ${index} must include a string title`,
+      );
+    }
+
+    if (!isNonEmptyString(updatedAt)) {
+      throw new AcpProtocolError(
+        `session/list entry ${index} must include a non-empty updatedAt`,
+      );
+    }
+
+    return {
+      id: sessionId,
+      workspaceRoot: cwd,
+      title,
+      updatedAt,
+    };
+  });
 }
 
 /**

@@ -1,11 +1,14 @@
 import type {
   AgentRuntime,
   CreateSessionRequest,
+  LoadSessionRequest,
   PromptRequest,
   PromptResult,
   RuntimeAgentInfo,
   RuntimeCapabilities,
   Session,
+  SessionOpenRequest,
+  SessionSummary,
 } from "@/types/runtime";
 import { UnsupportedCapabilityError } from "../../../types/runtime";
 import {
@@ -13,6 +16,7 @@ import {
   extractAgentTextChunk,
   parseInitializeResult,
   parsePromptResult,
+  parseSessionListResult,
   parseSessionNewResult,
   type InitializeParams,
 } from "./protocol";
@@ -218,9 +222,82 @@ function createRuntime(
     return createSessionObject(parseSessionNewResult(result));
   };
 
+  const listSessions = async (): Promise<SessionSummary[]> => {
+    assertOpen("session/list");
+
+    if (!capabilities.sessions.list) {
+      throw new UnsupportedCapabilityError("sessions.list");
+    }
+
+    const result = await transport.request<unknown>("session/list", {});
+
+    return parseSessionListResult(result);
+  };
+
+  const resumeSession = async (
+    request: SessionOpenRequest,
+  ): Promise<Session> => {
+    assertOpen("session/resume");
+
+    if (!capabilities.sessions.resume) {
+      throw new UnsupportedCapabilityError("sessions.resume");
+    }
+
+    await transport.request("session/resume", {
+      sessionId: request.sessionId,
+      cwd: request.workspaceRoot,
+      mcpServers: [],
+    });
+
+    assertOpen("session/resume");
+
+    return createSessionObject(request.sessionId);
+  };
+
+  const loadSession = async (
+    request: LoadSessionRequest,
+  ): Promise<Session> => {
+    assertOpen("session/load");
+
+    if (!capabilities.loadSession) {
+      throw new UnsupportedCapabilityError("loadSession");
+    }
+
+    const unsubscribe = transport.onNotification((method, params) => {
+      if (method !== "session/update") {
+        return;
+      }
+
+      const text = extractAgentTextChunk(request.sessionId, params);
+
+      if (text === null) {
+        return;
+      }
+
+      request.onEvent({ type: "assistant_text_delta", text });
+    });
+
+    try {
+      await transport.request("session/load", {
+        sessionId: request.sessionId,
+        cwd: request.workspaceRoot,
+        mcpServers: [],
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    assertOpen("session/load");
+
+    return createSessionObject(request.sessionId);
+  };
+
   return {
     capabilities,
+    listSessions,
     createSession,
+    resumeSession,
+    loadSession,
     close,
   };
 }
