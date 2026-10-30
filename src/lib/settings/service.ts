@@ -10,32 +10,15 @@ import {
   type CredentialStore,
   type RuntimeProfile,
 } from "../../types/runtime-settings";
+import type {
+  SettingsErrorCode,
+  SettingsErrorField,
+  SettingsProfileView,
+} from "../../types/settings-api";
 import { CredentialStoreError } from "../runtime/reasonix/env-file-store";
 import { WorkflowRecordError } from "../workflow/persistence-errors";
 
-/** Stable, non-secret error codes shared by the service and HTTP boundary. */
-export type SettingsErrorCode =
-  | "invalid_request"
-  | "invalid_json"
-  | "unsupported_media_type"
-  | "invalid_secret"
-  | "profile_not_found"
-  | "provider_unknown"
-  | "model_unknown"
-  | "api_key_env_unknown"
-  | "catalog_unavailable"
-  | "credential_path_rejected"
-  | "credential_file_invalid"
-  | "credential_conflict"
-  | "credential_locked"
-  | "credential_unavailable"
-  | "persistence_error";
-
-/** One field-level validation problem. It never describes a secret value. */
-export interface SettingsErrorField {
-  readonly field: string;
-  readonly message: string;
-}
+export type { SettingsErrorCode, SettingsErrorField, SettingsProfileView };
 
 const MESSAGES: Record<SettingsErrorCode, string> = {
   invalid_request: "The settings request is invalid.",
@@ -78,12 +61,6 @@ export class SettingsError extends Error {
       this.fields = fields;
     }
   }
-}
-
-/** A profile plus its credential presence. No secret is part of this view. */
-export interface SettingsProfileView {
-  readonly profile: RuntimeProfile;
-  readonly credentialStatus: CredentialStatus;
 }
 
 export interface SettingsServiceDeps {

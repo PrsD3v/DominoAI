@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { Button } from "@/components/ui/button";
 import { getI18n } from "@/i18n/server";
 
 export default async function HomePage() {
-  const { messages } = await getI18n();
+  const { locale, messages } = await getI18n();
   const cards = [
     messages.home.cards.projects,
     messages.home.cards.workflows,
@@ -36,7 +38,16 @@ export default async function HomePage() {
               </p>
             </div>
           </div>
-          <LanguageSwitcher />
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link href={`/${locale}/settings`} />}
+            >
+              {messages.nav.settings}
+            </Button>
+            <LanguageSwitcher />
+          </div>
         </div>
       </header>
 

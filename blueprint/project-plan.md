@@ -154,7 +154,7 @@ added for the MVP.
 | --- | --- | --- |
 | App | Next.js 16 App Router, React 19, TypeScript strict | installed |
 | Styling | Tailwind CSS v4, CSS-first theme, light and dark tokens | installed |
-| UI components | shadcn/ui, default components used as-is | not installed yet |
+| UI components | shadcn/ui, default components used as-is | planned in 11A Stage 6 |
 | Forms | native React handling; Zod for schema validation; React Hook Form optional | not installed yet |
 | Localization | English and Persian, English default, cookie-backed switcher | shell implemented |
 | Runtime | Node.js 24 | available |

@@ -465,7 +465,13 @@ count of files a later cleanup must convert rather than closing the gap.
 **Suggested fix:** Convert the new import sites to `@/lib/settings/...`,
 `@/lib/runtime/reasonix/...`, `@/lib/workflow/persistence-errors`, and
 `@/types/...` while F-08 and F-10 are repaired. No behavior changes.
-**Resolution:** Open.
+**Resolution:** Open. Re-examined during the 6A Stage 6 review: the feature 11A
+screen modules extend the same drift and belong in the same cleanup pass,
+`src/lib/settings/screen.ts:1-16`, `screen.test.ts:2-11`, `client.ts:1-4`, and
+`src/types/settings-api.ts:1-2` all import through `../../` or `./` instead of
+`@/`. The Stage 6 feature components (settings-screen, profile-form,
+credential-panel, the settings page) do use the alias, so this is the same
+pre-existing gap, not a new pattern.
 
 ### F-23 [P3] open - Two spec-stated request shapes have no test
 
@@ -548,4 +554,131 @@ other failure follows. Stage 6 cannot distinguish that case from a crash, and th
 **Suggested fix:** Wrap the directory creation and store open in a `try` that
 throws `SettingsError("persistence_error")`, keeping the generic message and any
 upstream detail out of it.
+**Resolution:** Open.
+
+### F-27 [P2] open - A profile re-fetch blanks the list it was supposed to keep
+
+**File:** src/components/settings/settings-screen.tsx:220
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `reloadProfiles` (`settings-screen.tsx:220-223`) replaces
+`profilesState` with `{ status: "loading" }` before the GET, and `handleSaved`
+(`:230-235`) calls it after every successful create or edit. Step 4 requires
+"If the re-fetch fails, keep the current list and show the profiles failure
+banner" (`current-feature.md:254-255`), but once the previous value has been
+replaced by `loading` there is nothing left to keep: a failed follow-up GET (a
+500, the untyped route crash F-26 records, or a dropped connection) lands in the
+`profilesState.status === "error"` branch (`:317-333`) with the list gone, so the
+profile the user just created disappears behind the banner. The same
+clear-then-fetch shape unmounts the form and every group card into skeletons on
+each save, because `isLoading` (`:207-208`, derived from both states) gates the
+whole body at `:335-375`. Not raised to P1: nothing is lost server-side and a
+retry recovers, but a stated Step 4 behavior is currently unreachable.
+**Suggested fix:** Keep the last successful value while re-fetching, either by
+tracking a separate pending flag or by letting the error state carry the previous
+`value` and rendering the groups from it, with the banner above the retained
+list.
+**Resolution:** Open.
+
+### F-28 [P3] open - Entered form values are discarded when a typed error forces a catalog reload
+
+**File:** src/components/settings/profile-form.tsx:174
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `provider_unknown`, `model_unknown`, `api_key_env_unknown`,
+and `catalog_unavailable` call `onCatalogRefresh` (`profile-form.tsx:174-181`),
+which the screen wires to `handleCatalogRefresh`
+(`settings-screen.tsx:242-245`). That sets `catalogState` back to `loading`, so
+`catalog` becomes null, `ProfileForm` swaps to the unavailable branch
+(`profile-form.tsx:399-414`), and `ProfileFormFields` unmounts, taking `label`,
+`providerName`, and `model` with it. Step 4 requires "On failure, keep the
+entered values" (`current-feature.md:248-249`); after an unknown provider or
+model, the label the user typed is lost too, and the reload meant to repair the
+selection returns an empty create-shaped form.
+**Suggested fix:** Keep the form mounted across the catalog reload, or lift the
+label and selection state into the screen so it survives the remount.
+**Resolution:** Open.
+
+### F-29 [P3] open - The settings fetch wrapper has no test while it owns the error mapping
+
+**File:** src/lib/settings/client.ts:14
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: tests)
+**Why it matters:** `requestSettingsJson` decides between `network` on a thrown
+fetch, the server code parsed from the body, `unexpected` for an unparseable or
+missing body, and `ok`, and every failure message the screen shows is derived
+from that choice. `src/lib/settings/` ships `screen.test.ts`, `service.test.ts`,
+and `runtime.test.ts` but no `client.test.ts`, and nothing under
+`src/**/*.test.ts` mentions `requestSettingsJson`. The coding standards make
+tests a gate for logic-bearing steps and name parsers as in scope; this is a
+fetch-boundary parser rather than a UI component, and its `status === 0`
+`network` fallback is only reachable through the wrapper, so the two can drift
+apart with nothing failing.
+**Suggested fix:** Add `client.test.ts` with a stubbed `fetch`: a rejected fetch
+asserting `network`, a 400 JSON body asserting the parsed code and the retained
+body, a 200 with invalid JSON asserting `ok` with a null body, and a non-JSON
+500 asserting `unexpected`.
+**Resolution:** Open.
+
+### F-30 [P3] open - The generated `Separator` is never used and the page shell does not compose it
+
+**File:** src/components/ui/separator.tsx:1
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** Step 1 lists `separator` among the components to add, and
+Step 3 says to "Compose the shell from the installed default `Button`, `Card`,
+and `Separator` components" (`current-feature.md:183-185`). The file exists but
+no module imports `@/components/ui/separator` (checked every `src/**/*.tsx`),
+and the settings page draws its header and footer edges with `border-b` and
+`border-t` utilities instead (`src/app/[locale]/settings/page.tsx:19,67`). The
+no-edit rule means the generated file cannot be tuned to fit; it is either a
+missing composition or a generated surface nothing needs.
+**Suggested fix:** Use `Separator` where the spec asked for a rule, or record in
+the spec that the generated component is intentionally unused. Do not delete it
+while the spec requires it.
+**Resolution:** Open.
+
+### F-31 [P3] open - Build-only packages sit in `dependencies`
+
+**File:** package.json:13
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `shadcn` (`package.json:18`, the component code generator,
+required only because `src/app/globals.css:3` imports its `tailwind.css`) and
+`tw-animate-css` (`:19`, CSS utilities) are declared as runtime dependencies, so
+a production install pulls the shadcn CLI and its own nested `node_modules`
+(`node_modules/shadcn/node_modules`). No application module imports either at
+runtime; the client code uses `@base-ui/react`, `class-variance-authority`,
+`cn`, and `lucide-react`, which do belong in `dependencies`.
+**Suggested fix:** Move `shadcn` and `tw-animate-css` to `devDependencies`. The
+CSS import still resolves during the build.
+**Resolution:** Open.
+
+### F-32 [P3] open - `components.json` records a different base color than the spec named
+
+**File:** components.json:8
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** Step 1 asks for `--base-color zinc` and "the `zinc` base
+color" (`current-feature.md:78-83`, nothing else supports the substitution), and
+the shipped `components.json` records `"baseColor": "neutral"` with the neutral
+gray token ramp in `src/app/globals.css`. The step permits adjusting only a flag
+the installed CLI renamed, and a different base color changes every generated
+token. Nothing user-visible breaks, since both ramps are monochrome, but the
+artifact no longer matches the approved instruction and no command record
+explains why.
+**Suggested fix:** Re-run the CLI with the approved base color, or record the
+substitution and its reason in the spec or the archived feature note.
+**Resolution:** Open.
+
+### F-33 [P2] open - The credential-lock test fails under full-suite load
+
+**File:** src/lib/runtime/reasonix/env-file-store.test.ts:660
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: tests)
+**Why it matters:** `serializes simultaneous stale-lock takeover`
+(`env-file-store.test.ts:660`) races two writers against a 500 ms lock deadline
+and failed one of the two full `npm test` runs in this review with
+`CredentialLockError: Could not acquire the credential lock within 500 ms`
+(failing frame at `:714`, thrown from `env-file-store.ts:759`). It then passed
+in isolation (46/46, 339 ms) and in a second full run (506 tests). The repo has
+no vitest config, so files run in the default parallel worker pool and the
+wall-clock deadline is what gives way. The gate therefore goes red on load
+rather than on a defect, and a real lock regression would look the same.
+**Suggested fix:** Give the test a deadline that is not load-sensitive (raise
+`lockTimeoutMs` for this case or drive the takeover with fake timers) so it
+asserts ordering rather than machine speed.
 **Resolution:** Open.

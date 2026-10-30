@@ -6,8 +6,9 @@
 > Turbopack, React Compiler enabled), React 19.3, TypeScript 5 in strict mode,
 > Tailwind CSS v4 with no config file, ESLint 9 flat config, npm.
 >
-> No database, auth provider, or component library is installed yet. Those
-> sections say so; replace them when a feature actually adds the dependency.
+> No database or auth provider is installed yet. shadcn/ui is installed as the
+> component library. Those sections say so; replace them when a feature actually
+> adds the dependency.
 >
 > Re-run `/onboard` if the stack changes materially.
 
@@ -77,8 +78,17 @@
   hardcoded hex values in components
 - The scaffold follows the OS color scheme through `prefers-color-scheme` in
   `globals.css`; keep that pattern until a feature needs an explicit toggle
-- No component library is installed. Add one deliberately in a feature spec
-  rather than pulling one in mid-step.
+- shadcn/ui is the component library. Its default components live under
+  `src/components/ui/` and are never edited, forked, or replaced.
+- Add a missing component with the shadcn CLI, for example
+  `npx shadcn@latest add <component>`, and keep it at the generated defaults.
+- Compose the defaults from feature components using their props and variants,
+  plus Tailwind classes. Use the generated `cn` helper from `@/lib/utils` for
+  conditional classes.
+- The shadcn semantic tokens live in `src/app/globals.css`. Dark values follow
+  `prefers-color-scheme`; do not add a `.dark` class switch or a theme provider.
+- Keep custom layout in page-level composition and wrapper components, not in
+  `src/components/ui/`.
 
 ## Database
 

@@ -1,6 +1,6 @@
 # DominoAI - Project Overview
 
-<!-- blueprint:source-hash 5a7cba59a74470c1fca776bee53333869abc4fb2f63a10a3c90e4123f79e04d4 -->
+<!-- blueprint:source-hash 68c38c68d9617d62e72fdd04aba2f1709902df8e8bb9d6374a2a73dbada20ef5 -->
 
 > A local-first workflow control layer for AI coding agents, open source under MIT.
 
@@ -115,7 +115,8 @@ runtime-independent workflow engine.
       interface and SQLite layer (commit `aa3e78b`).
     - **Stage 5 Settings API** - not implemented: server-side catalog, profile,
       and write-only credential endpoints.
-    - **Stage 6 Settings screen** - not implemented: the initial Settings screen.
+    - **Stage 6 Settings screen** - not implemented: the initial Settings screen,
+      built from shadcn/ui default components used as-is.
     - **Stage 7 Test Connection** - not implemented; live proof depends on 3B.
     - **Stage 8 Project default-profile integration** - not implemented.
     Feature 11A remains open. Its real connection test depends on 3B and
