@@ -244,4 +244,52 @@ describe("SQLite runtime profile persistence", () => {
       database.close();
     }
   });
+
+  it("lists no profiles when the table is empty", async () => {
+    const store = openStore(await makePath());
+
+    expect(await store.listRuntimeProfiles()).toEqual([]);
+  });
+
+  it("lists profiles ordered by createdAt and then id", async () => {
+    const store = openStore(await makePath());
+    const later = baseProfile({
+      id: "profile-b",
+      createdAt: "2026-10-30T02:00:00.000Z",
+      updatedAt: "2026-10-30T02:00:00.000Z",
+    });
+    const firstByTime = baseProfile({
+      id: "profile-z",
+      createdAt: "2026-10-30T01:00:00.000Z",
+      updatedAt: "2026-10-30T01:00:00.000Z",
+    });
+    const sameTime = baseProfile({
+      id: "profile-a",
+      createdAt: "2026-10-30T01:00:00.000Z",
+      updatedAt: "2026-10-30T01:00:00.000Z",
+    });
+
+    await store.createRuntimeProfile(later);
+    await store.createRuntimeProfile(firstByTime);
+    await store.createRuntimeProfile(sameTime);
+
+    const listed = await store.listRuntimeProfiles();
+
+    expect(listed.map((profile) => profile.id)).toEqual([
+      "profile-a",
+      "profile-z",
+      "profile-b",
+    ]);
+  });
+
+  it("round-trips every persisted field through list", async () => {
+    const store = openStore(await makePath());
+    const profile = baseProfile();
+    await store.createRuntimeProfile(profile);
+
+    const listed = await store.listRuntimeProfiles();
+
+    expect(listed).toEqual([profile]);
+    expect(listed[0]?.credentialRef).not.toBe(profile.credentialRef);
+  });
 });

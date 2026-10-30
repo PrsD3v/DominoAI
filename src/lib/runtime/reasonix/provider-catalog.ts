@@ -226,10 +226,12 @@ export function parseReasonixDoctorCatalog(
 export type ReasonixDoctorRunner = () => Promise<string>;
 
 /** Run the installed Reasonix doctor command without a shell. */
-export function runReasonixDoctor(): Promise<string> {
+export function runReasonixDoctor(
+  command = "reasonix",
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
-      "reasonix",
+      /*turbopackIgnore: true*/ command,
       ["doctor", "--json"],
       {
         encoding: "utf8",

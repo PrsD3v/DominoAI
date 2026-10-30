@@ -445,3 +445,107 @@ change the reported error with no test failing.
 written as a `Buffer` and a row with `updated_at = 'not-a-timestamp'`, both
 asserting `WorkflowPersistenceError` with code `decode`.
 **Resolution:** Open.
+
+### F-22 [P3] open - The new settings modules and API routes bypass the `@/` import alias
+
+**File:** src/lib/settings/service.ts:2
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `coding-standards.md:20` requires imports through the `@/*`
+path alias instead of long relative paths. Every new Stage 5 module uses the
+relative form: `service.ts:2-14` (`../../types/persistence`,
+`../../types/runtime-catalog`, `../../types/runtime-settings`,
+`../runtime/reasonix/env-file-store`, `../workflow/persistence-errors`),
+`runtime.ts:4-9`, and all four route handlers, for example
+`src/app/api/settings/profiles/route.ts:2-7`
+(`../../../../lib/settings/http`, `../../../../lib/settings/service`). The
+nearest existing route file, `src/app/[locale]/page.tsx:1-2`, imports
+`@/components/language-switcher` and `@/i18n/server`. F-08 and F-10 track the
+same drift in the workflow and persistence files, so this delta extends the
+count of files a later cleanup must convert rather than closing the gap.
+**Suggested fix:** Convert the new import sites to `@/lib/settings/...`,
+`@/lib/runtime/reasonix/...`, `@/lib/workflow/persistence-errors`, and
+`@/types/...` while F-08 and F-10 are repaired. No behavior changes.
+**Resolution:** Open.
+
+### F-23 [P3] open - Two spec-stated request shapes have no test
+
+**File:** src/lib/settings/http.ts:78
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: tests)
+**Why it matters:** The spec requires `readJsonObject` to raise `invalid_json`
+"for unparseable or non-object bodies" (current-feature.md:140-141) and Step 5
+requires a malformed-JSON handler test for the credential route
+(current-feature.md:169-171). The tests only ever send the unparseable body `"{"`
+(`src/app/api/settings/profiles/route.test.ts:120`,
+`src/app/api/settings/profiles/[id]/route.test.ts:120`), so the non-object
+branch at `http.ts:78-80` is never exercised, and
+`src/app/api/settings/profiles/[id]/credential/route.test.ts` has no
+malformed-JSON case at all even though `PUT` is the only endpoint that carries a
+secret. A regression that turned a `[]` or `null` body into a 500, or that made
+`PUT` echo a parse failure, would pass the suite. The same file also covers only
+`invalid_secret` for the Step 5 "credential error mapping" item; the 409 and 503
+mappings are proven only at the service layer.
+**Suggested fix:** Add a `body: "[]"` case asserting `invalid_json`, and a `PUT`
+malformed-JSON case to the credential route test. Optionally add one
+credential-error case (for example `credential_locked` to 503) to the same file.
+**Resolution:** Open.
+
+### F-24 [P3] open - The update race remap and the create/update persistence failures are untested
+
+**File:** src/lib/settings/service.ts:377
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: tests)
+**Why it matters:** `updateProfile` translates a `WorkflowRecordError` with
+`operation === "update"` into `profile_not_found` (`service.ts:377-386`), which
+is the only path that reports a record deleted between `requireProfile` and the
+write. The in-memory fake in `service.test.ts:68-74` throws that error only when
+the id is already absent, and `requireProfile` rejects that case first, so no
+test can reach the remap. The `createProfile` persistence catch
+(`service.ts:342-346`) and the generic `persistence_error` rethrow
+(`service.ts:385`) are also uncovered; the only persistence failure exercised is
+`listRuntimeProfiles` and `getRuntimeProfile`
+(`service.test.ts:410-424`). A wrong code here would be invisible.
+**Suggested fix:** Give the fake store a flag that makes
+`updateRuntimeProfile` throw `WorkflowRecordError("update", ...)` while the
+record still exists, and assert `profile_not_found`; add one create and one
+update case asserting `persistence_error`.
+**Resolution:** Open.
+
+### F-25 [P3] open - Every catalog-reading request spawns `reasonix doctor`
+
+**File:** src/lib/settings/service.ts:321
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: performance)
+**Why it matters:** `createProfile` (`service.ts:321`) and `updateProfile`
+(`service.ts:357`) call `loadCatalog()` per request, `runtime.ts:74-77` wires
+that to `loadReasonixProviderCatalog` with no cache, and `runReasonixDoctor`
+(`src/lib/runtime/reasonix/provider-catalog.ts:229-256`) spawns a child process
+with a 10 s timeout and a 1 MB stdout buffer. So `GET /api/settings/providers`,
+every profile create, and every profile edit block on a fresh CLI subprocess,
+and a hung or slow `reasonix` makes those requests wait up to ten seconds. The
+catalog is small, stable metadata, and the settings screen reads it on open.
+No requirement is violated: the spec asks for the catalog as the only source of
+`apiKeyEnv`, not for a fresh fetch per request.
+**Suggested fix:** Memoize the catalog on the cached service (or in
+`runtime.ts`) with a short lifetime and reuse it for create, update, and the
+provider listing. This changes shipped behavior (a catalog edited outside the
+app would surface later), so it needs an explicit user decision rather than an
+automatic repair; alternatively record the per-request spawn as accepted.
+**Resolution:** Open.
+
+### F-26 [P3] open - A failed store open returns an untyped 500 instead of a settings error
+
+**File:** src/lib/settings/runtime.ts:64
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `createSettingsServiceFromEnvironment` calls `mkdirSync` and
+`openSqliteWorkflowStore` outside any typed error path (`runtime.ts:64-66`), and
+`getSettingsService()` is invoked inside the route's `handleSettingsRequest`
+callback (`src/app/api/settings/providers/route.ts:18-19`, and the same shape in
+the other three handlers). An unusable `DOMINO_DB_PATH` (for example a path under
+a directory the process cannot create, or a database file that is not a SQLite
+file) therefore throws a raw `Error` from `mkdirSync` or the store constructor,
+`handleSettingsRequest` rethrows it (`http.ts:62`), and the client receives
+Next's HTML 500 rather than the `{ error: { code, message } }` contract every
+other failure follows. Stage 6 cannot distinguish that case from a crash, and the
+`persistence_error` code that exists for exactly this area is never used for it.
+**Suggested fix:** Wrap the directory creation and store open in a `try` that
+throws `SettingsError("persistence_error")`, keeping the generic message and any
+upstream detail out of it.
+**Resolution:** Open.

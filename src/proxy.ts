@@ -5,6 +5,11 @@ const oneYearInSeconds = 60 * 60 * 24 * 365;
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
   const [firstSegment] = pathname.split("/").filter(Boolean);
   const saved = request.cookies.get(localeCookieName)?.value;
   const preferred = isLocale(saved) ? saved : defaultLocale;

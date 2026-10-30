@@ -1,6 +1,6 @@
 # DominoAI - Project Overview
 
-<!-- blueprint:source-hash 89cb346094216f8b7daf45997cb3a831206e26feb5c80387af3d51ec26fe2a1a -->
+<!-- blueprint:source-hash 5a7cba59a74470c1fca776bee53333869abc4fb2f63a10a3c90e4123f79e04d4 -->
 
 > A local-first workflow control layer for AI coding agents, open source under MIT.
 
@@ -110,10 +110,14 @@ runtime-independent workflow engine.
       atomic, locked, symlink-safe writes to `<Reasonix home>/.env`.
     - **Stage 3 Provider/model catalog** - implemented and committed: read-only
       metadata from `reasonix doctor --json`; credential presence only.
-    - **Stage 4 Persistence and migration** - blocked by Features 9 and 10; no
-      profile persistence exists in this checkout.
-    - **Later** - API, Settings UI, real connection test, and project
-      default-profile integration are not implemented.
+    - **Stage 4 Persistence and migration** - implemented and committed:
+      non-secret profile metadata persists through the existing persistence
+      interface and SQLite layer (commit `aa3e78b`).
+    - **Stage 5 Settings API** - not implemented: server-side catalog, profile,
+      and write-only credential endpoints.
+    - **Stage 6 Settings screen** - not implemented: the initial Settings screen.
+    - **Stage 7 Test Connection** - not implemented; live proof depends on 3B.
+    - **Stage 8 Project default-profile integration** - not implemented.
     Feature 11A remains open. Its real connection test depends on 3B and
     Feature 4.
 12. **Blueprint compatibility assessment** - evidence-based decision before any
@@ -168,9 +172,9 @@ interface, never to SQLite.
   `model`, `apiKeyEnv`, `credentialRef`, `createdAt`, `updatedAt`
 - `CredentialRef`: `kind` (`reasonix-env`), `providerName`, `apiKeyEnv`; it
   points to a runtime-owned credential and never contains a key value
-- Stage 4 of 11A persists this non-secret profile metadata. It is blocked until
-  Features 9 and 10 provide the persistence interface and SQLite layer. No
-  credential value belongs in this model.
+- Stage 4 of 11A persists this non-secret profile metadata through the
+  persistence interface and SQLite layer (commit `aa3e78b`). No credential value
+  belongs in this model.
 
 ### WorkflowDefinition and WorkflowVersion
 

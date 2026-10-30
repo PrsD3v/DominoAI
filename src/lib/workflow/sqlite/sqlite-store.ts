@@ -1113,6 +1113,15 @@ class SqliteWorkflowStoreImpl implements SqliteWorkflowStore {
     return row === undefined ? null : decodeRuntimeProfile(row);
   }
 
+  async listRuntimeProfiles(): Promise<readonly RuntimeProfile[]> {
+    return this.db
+      .prepare(
+        "SELECT * FROM runtime_profiles ORDER BY created_at ASC, id ASC",
+      )
+      .all()
+      .map((row) => decodeRuntimeProfile(row));
+  }
+
   async updateRuntimeProfile(profile: RuntimeProfile): Promise<void> {
     requireValidDefinition(
       isRuntimeProfile(profile),

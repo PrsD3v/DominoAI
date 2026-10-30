@@ -43,6 +43,7 @@ export interface RuntimeProfilePersistence {
   createRuntimeProfile(profile: RuntimeProfile): Promise<void>;
   getRuntimeProfile(id: RuntimeProfileId): Promise<RuntimeProfile | null>;
   updateRuntimeProfile(profile: RuntimeProfile): Promise<void>;
+  listRuntimeProfiles(): Promise<readonly RuntimeProfile[]>;
 }
 
 /**
