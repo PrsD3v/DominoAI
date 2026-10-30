@@ -27,6 +27,7 @@ const TABLES = [
   "project_workflow_versions",
   "projects",
   "runtime_events",
+  "runtime_profiles",
   "runtime_session_refs",
   "skill_definitions",
   "skill_versions",
@@ -84,6 +85,39 @@ describe("openSqliteDatabase", () => {
       expect(rows).toEqual([{ id: "definition-1" }]);
     } finally {
       second.close();
+    }
+  });
+
+  it("upgrades a version 1 database and preserves existing rows", async () => {
+    const path = await makeDatabasePath();
+
+    const created = openSqliteDatabase({ path });
+    created.db
+      .prepare("INSERT INTO workflow_definitions (id, name) VALUES (?, ?)")
+      .run("definition-1", "Release");
+    created.db.exec("DROP TABLE runtime_profiles");
+    created.db.exec("PRAGMA user_version = 1");
+    created.close();
+
+    const upgraded = openSqliteDatabase({ path });
+
+    try {
+      const version = upgraded.db.prepare("PRAGMA user_version").get();
+      expect(Number(version?.user_version)).toBe(SCHEMA_VERSION);
+
+      const profileTable = upgraded.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runtime_profiles'",
+        )
+        .all();
+      expect(profileTable).toEqual([{ name: "runtime_profiles" }]);
+
+      const definitions = upgraded.db
+        .prepare("SELECT id FROM workflow_definitions")
+        .all();
+      expect(definitions).toEqual([{ id: "definition-1" }]);
+    } finally {
+      upgraded.close();
     }
   });
 

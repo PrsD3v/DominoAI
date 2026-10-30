@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { WorkflowPersistenceError } from "../persistence-errors";
 
 /** Latest schema version this build can read and write. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 interface Migration {
   readonly version: number;
@@ -144,6 +144,22 @@ const MIGRATIONS: readonly Migration[] = [
         created_at TEXT NOT NULL
       )`,
       `CREATE INDEX workflow_history_run ON workflow_history (run_id, seq)`,
+    ],
+  },
+  {
+    version: 2,
+    statements: [
+      `CREATE TABLE runtime_profiles (
+        id TEXT NOT NULL PRIMARY KEY,
+        label TEXT NOT NULL,
+        adapter_id TEXT NOT NULL,
+        provider_name TEXT NOT NULL,
+        model TEXT NOT NULL,
+        api_key_env TEXT NOT NULL,
+        credential_kind TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
     ],
   },
 ];

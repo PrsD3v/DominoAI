@@ -199,6 +199,12 @@ Re-checked on 2026-10-30 during the Feature 11 independent review: the new
 drift did not spread into this module and its test file keeps relative runtime
 imports only as the spec requires. The listed Feature 10 sites still need the
 change. Stays open.
+Re-checked on 2026-10-30 during the 11A Stage 4 independent review: the new
+import site `sqlite-store.ts:13` (`../../../types/runtime-settings`) and the new
+test file `runtime-profiles.test.ts:5` (`../../../types/runtime-settings`) repeat
+the same relative form, while the contract added to `src/types/persistence.ts`
+uses a sibling-relative `./runtime-settings` that matches that file's existing
+convention. Stays open.
 
 ### F-11 [P2] open - A failed history append loses the interruption record for good
 
@@ -245,6 +251,11 @@ same write/read asymmetry also covers status, step status, history kind, and
 event shape: `insertRow` stores them unvalidated (`sqlite-store.ts:526`, `:766`,
 `:793`) and only the read path rejects them. One write-path validation fix
 covers all of them. Stays open.
+Re-checked on 2026-10-30 during the 11A Stage 4 review: the new
+`createRuntimeProfile` and `updateRuntimeProfile` (`sqlite-store.ts:1089`,
+`:1116`) do validate with `isRuntimeProfile` before inserting or updating, so the
+asymmetry stays confined to the run, step, history, and event writers. That
+validate-then-write shape is the pattern the fix should copy. Stays open.
 
 ### F-13 [P3] open - Unique-versus-conflict classification reads SQLite's message text
 
@@ -386,4 +397,51 @@ test ever takes that branch, so an `EACCES`/`EPERM` regression stays silent.
 test, register with `name: "  Domino  "` and assert verbatim storage, and take the
 inaccessible branch with `chmod 0o000` on a temporary directory, skipping the
 case with a visible reason only when the runner is root.
+**Resolution:** Open.
+
+### F-20 [P3] open - The validity guard dereferences the value it is guarding
+
+**File:** src/lib/workflow/sqlite/sqlite-store.ts:1090
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality, security)
+**Why it matters:** `createRuntimeProfile` (`sqlite-store.ts:1089-1094`) and
+`updateRuntimeProfile` (`:1116-1121`) call
+`requireValidDefinition(isRuntimeProfile(profile), "runtime profile", profile.id)`.
+JavaScript evaluates every argument before the call, so `profile.id` runs even
+when `isRuntimeProfile(profile)` has already returned false. A caller that
+bypasses the TypeScript type with `null` or `undefined` therefore gets a raw
+`TypeError` instead of the `WorkflowPersistenceError` with code `invalid` that the
+spec promises for "a secret-bearing or otherwise invalid profile even when a
+caller bypasses the TypeScript type". Nothing is written either way, so this is an
+error-contract deviation, not a data risk, and it is the existing store-wide shape
+(`createRun`, `createWorkflowDefinition`, `createSkillDefinition`, `createProject`
+all pass `<value>.id` the same way), so the new code is not drifting. It becomes
+reachable wherever a later stage parses untyped input into these calls, the same
+route F-16 records for registration.
+**Suggested fix:** Hand the guard the value instead of a dereference, for example
+`requireValidDefinition(isRuntimeProfile(profile), "runtime profile", profile)`
+and let the helper derive the id defensively. Changing the shared helper fixes
+the two new methods and the four existing call sites in one place.
+**Resolution:** Open.
+
+### F-21 [P3] open - Only the shape branch of the profile decode path is tested
+
+**File:** src/lib/workflow/sqlite/runtime-profiles.test.ts:170
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: tests)
+**Why it matters:** The corrupt-row case writes `credential_kind = 'other'`
+(`runtime-profiles.test.ts:179`) and asserts the resulting `decode` error, which
+exercises only the final `isRuntimeProfile` check in `decodeRuntimeProfile`
+(`sqlite-store.ts:522-548`). The other two failure families in that function are
+untouched. `readString` raises `decode` when a column is not a string
+(`sqlite-store.ts:101-109`), and a `BLOB` written into a `TEXT NOT NULL` column is
+read back as a `Uint8Array`, so that branch is reachable (verified directly
+against `node:sqlite` on Node 24: `Buffer` parameters survive to the read, while an
+explicit `NULL` is refused by the `NOT NULL` constraint). Separately, a stored
+`updated_at = 'not-a-timestamp'` passes `readString` and is rejected only by
+`isRuntimeProfile`'s timestamp rule. The spec lists "corrupt stored rows" among the
+cases to cover, and the same family is already tracked for the Feature 10 suite as
+F-14, so a later change to `readString` or to the timestamp rule would silently
+change the reported error with no test failing.
+**Suggested fix:** Add two cases beside the existing one: a row whose `label` is
+written as a `Buffer` and a row with `updated_at = 'not-a-timestamp'`, both
+asserting `WorkflowPersistenceError` with code `decode`.
 **Resolution:** Open.

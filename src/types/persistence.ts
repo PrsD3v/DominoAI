@@ -1,4 +1,8 @@
 import type {
+  RuntimeProfile,
+  RuntimeProfileId,
+} from "./runtime-settings";
+import type {
   SkillDefinition,
   SkillVersion,
   WorkflowDefinition,
@@ -28,6 +32,17 @@ export interface ProjectPersistence {
   getProject(id: string): Promise<Project | null>;
   updateProject(project: Project): Promise<void>;
   listProjects(): Promise<readonly Project[]>;
+}
+
+/**
+ * Application-owned persistence contract for non-secret runtime profiles.
+ * A profile references its credential by provider and environment-variable
+ * name; no secret value is stored or read through this contract.
+ */
+export interface RuntimeProfilePersistence {
+  createRuntimeProfile(profile: RuntimeProfile): Promise<void>;
+  getRuntimeProfile(id: RuntimeProfileId): Promise<RuntimeProfile | null>;
+  updateRuntimeProfile(profile: RuntimeProfile): Promise<void>;
 }
 
 /**

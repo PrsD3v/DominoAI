@@ -3,8 +3,14 @@ import type {
   Project,
   ProjectPersistence,
   PublishedDefinitionPersistence,
+  RuntimeProfilePersistence,
 } from "../../../types/persistence";
 import type { RuntimeEvent } from "../../../types/runtime";
+import {
+  isRuntimeProfile,
+  type RuntimeProfile,
+  type RuntimeProfileId,
+} from "../../../types/runtime-settings";
 import type {
   ApprovalRequest,
   ApprovalRequestStatus,
@@ -314,6 +320,20 @@ function runParameters(run: WorkflowRun): Parameter[] {
   ];
 }
 
+function runtimeProfileParameters(profile: RuntimeProfile): Parameter[] {
+  return [
+    profile.id,
+    profile.label,
+    profile.adapterId,
+    profile.providerName,
+    profile.model,
+    profile.apiKeyEnv,
+    profile.credentialRef.kind,
+    profile.createdAt,
+    profile.updatedAt,
+  ];
+}
+
 function decodeRun(row: Row): WorkflowRun {
   const id = readString(row, "workflow_runs", "id");
   const startedAt = readOptionalString(row, "workflow_runs", "started_at");
@@ -499,11 +519,39 @@ function decodeSkillVersion(row: Row): SkillVersion {
   return version;
 }
 
+function decodeRuntimeProfile(row: Row): RuntimeProfile {
+  const id = readString(row, "runtime_profiles", "id");
+  const providerName = readString(row, "runtime_profiles", "provider_name");
+  const apiKeyEnv = readString(row, "runtime_profiles", "api_key_env");
+  const profile = {
+    id,
+    label: readString(row, "runtime_profiles", "label"),
+    adapterId: readString(row, "runtime_profiles", "adapter_id"),
+    providerName,
+    model: readString(row, "runtime_profiles", "model"),
+    apiKeyEnv,
+    credentialRef: {
+      kind: readString(row, "runtime_profiles", "credential_kind"),
+      providerName,
+      apiKeyEnv,
+    },
+    createdAt: readString(row, "runtime_profiles", "created_at"),
+    updatedAt: readString(row, "runtime_profiles", "updated_at"),
+  };
+
+  if (!isRuntimeProfile(profile)) {
+    throw decodeFailure("runtime_profiles", id, "is not a valid profile");
+  }
+
+  return profile;
+}
+
 /** SQLite-backed execution persistence for the workflow engine. */
 export interface SqliteWorkflowStore
   extends WorkflowExecutionPersistence,
     PublishedDefinitionPersistence,
-    ProjectPersistence {
+    ProjectPersistence,
+    RuntimeProfilePersistence {
   close(): void;
 }
 
@@ -1036,6 +1084,52 @@ class SqliteWorkflowStoreImpl implements SqliteWorkflowStore {
       .prepare("SELECT * FROM projects ORDER BY seq")
       .all()
       .map((row) => this.decodeProject(row));
+  }
+
+  async createRuntimeProfile(profile: RuntimeProfile): Promise<void> {
+    requireValidDefinition(
+      isRuntimeProfile(profile),
+      "runtime profile",
+      profile.id,
+    );
+
+    insertRow(
+      this.db,
+      `INSERT INTO runtime_profiles (
+        id, label, adapter_id, provider_name, model, api_key_env,
+        credential_kind, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      runtimeProfileParameters(profile),
+      "runtime profile",
+      profile.id,
+    );
+  }
+
+  async getRuntimeProfile(id: RuntimeProfileId): Promise<RuntimeProfile | null> {
+    const row = this.db
+      .prepare("SELECT * FROM runtime_profiles WHERE id = ?")
+      .get(id);
+
+    return row === undefined ? null : decodeRuntimeProfile(row);
+  }
+
+  async updateRuntimeProfile(profile: RuntimeProfile): Promise<void> {
+    requireValidDefinition(
+      isRuntimeProfile(profile),
+      "runtime profile",
+      profile.id,
+    );
+
+    const result = this.db
+      .prepare(
+        `UPDATE runtime_profiles SET
+          label = ?, adapter_id = ?, provider_name = ?, model = ?,
+          api_key_env = ?, credential_kind = ?, created_at = ?, updated_at = ?
+        WHERE id = ?`,
+      )
+      .run(...runtimeProfileParameters(profile).slice(1), profile.id);
+
+    requireUpdated(Number(result.changes), "runtime profile", profile.id);
   }
 
   private replaceSelections(project: Project): void {
