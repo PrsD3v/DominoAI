@@ -19,6 +19,7 @@ const FAKE_CAPABILITIES: RuntimeCapabilities = {
   agent: { name: "fake", version: "1.0.0" },
   loadSession: false,
   sessions: { list: false, resume: false, close: true },
+  steering: false,
 };
 
 /** Build a deterministic runtime that replays scripted turns without spawning anything. */
@@ -53,6 +54,9 @@ export function createFakeRuntime(turns: FakeTurn[] = []): AgentRuntime {
             text: turn.deltas.join(""),
             stopReason: turn.stopReason ?? "completed",
           };
+        },
+        async steer(): Promise<void> {
+          throw new UnsupportedCapabilityError("steering");
         },
         cancel(): void {},
         async close(): Promise<void> {},

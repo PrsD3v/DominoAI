@@ -113,6 +113,7 @@ describe("createAcpRuntime handshake", () => {
       agent: { name: "fake-agent", version: "1.0.0" },
       loadSession: true,
       sessions: { list: true, resume: true, close: true },
+      steering: true,
     });
 
     const log = await readLog(logFile);
@@ -1078,5 +1079,177 @@ describe("prompt failure safety", () => {
     });
 
     await closing;
+  });
+});
+
+describe("Session.steer", () => {
+  it("sends the advertised method with the exact params and leaves the prompt intact", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ mode: "prompt-await-steer", logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+    let steering: Promise<void> | null = null;
+
+    const result = await session.prompt({
+      text: "Long task",
+      onEvent: (event) => {
+        if (event.text === "first" && !steering) {
+          steering = session.steer("Change course");
+        }
+      },
+    });
+
+    expect(result).toEqual({ text: "first", stopReason: "completed" });
+    await expect(steering).resolves.toBeUndefined();
+
+    const steerMessages = methods(
+      await readLog(logFile),
+      "_reasonix.io/session/steer",
+    );
+
+    expect(steerMessages).toHaveLength(1);
+    expect(steerMessages[0]?.params).toEqual({
+      sessionId: session.id,
+      prompt: [{ type: "text", text: "Change course" }],
+    });
+  });
+
+  it("denies steering when the runtime advertises no usable method", async () => {
+    for (const mode of ["no-steer-capability", "steer-malformed"]) {
+      const directory = await makeTempDir();
+      const logFile = join(directory, "agent.log");
+      const runtime = await start({ mode, logFile });
+      const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+      expect(runtime.capabilities.steering).toBe(false);
+
+      const error = await session
+        .steer("Change course")
+        .catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(UnsupportedCapabilityError);
+      expect(error).toMatchObject({
+        name: "UnsupportedCapabilityError",
+        capability: "steering",
+      });
+      expect(
+        methods(await readLog(logFile), "_reasonix.io/session/steer"),
+      ).toHaveLength(0);
+    }
+  });
+
+  it("rejects steering with no active prompt", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    const error = await session
+      .steer("Change course")
+      .catch((reason: unknown) => reason);
+
+    expect(error).toMatchObject({ message: "Cannot steer: no active prompt" });
+    expect(
+      methods(await readLog(logFile), "_reasonix.io/session/steer"),
+    ).toHaveLength(0);
+  });
+
+  it("rejects steering after the prompt settles", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    await session.prompt({ text: "Done", onEvent: () => {} });
+
+    const error = await session
+      .steer("Change course")
+      .catch((reason: unknown) => reason);
+
+    expect(error).toMatchObject({ message: "Cannot steer: no active prompt" });
+    expect(
+      methods(await readLog(logFile), "_reasonix.io/session/steer"),
+    ).toHaveLength(0);
+  });
+
+  it("rejects steering on a closed session", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    await session.close();
+
+    const error = await session
+      .steer("Change course")
+      .catch((reason: unknown) => reason);
+
+    expect(error).toMatchObject({ message: "Cannot steer: session is closed" });
+    expect(
+      methods(await readLog(logFile), "_reasonix.io/session/steer"),
+    ).toHaveLength(0);
+  });
+
+  it("rejects steering on a closed runtime", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    await runtime.close();
+
+    const error = await session
+      .steer("Change course")
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(TransportClosedError);
+    expect(
+      methods(await readLog(logFile), "_reasonix.io/session/steer"),
+    ).toHaveLength(0);
+  });
+
+  it("propagates a steering error and still completes the prompt", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ mode: "steer-error", logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+    let steerError: Promise<unknown> | null = null;
+
+    const result = await session.prompt({
+      text: "Long task",
+      onEvent: (event) => {
+        if (event.text === "Hello" && !steerError) {
+          steerError = session
+            .steer("Change course")
+            .catch((reason: unknown) => reason);
+        }
+      },
+    });
+
+    expect(result).toEqual({ text: "Hello world", stopReason: "completed" });
+
+    const error = await steerError;
+
+    expect(error).toBeInstanceOf(JsonRpcError);
+    expect(error).toMatchObject({
+      name: "JsonRpcError",
+      code: -32000,
+      message: "scripted steer failure",
+    });
+  });
+
+  it("sends no steering request on prompt, cancel, and close paths", async () => {
+    const directory = await makeTempDir();
+    const logFile = join(directory, "agent.log");
+    const runtime = await start({ logFile });
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    await session.prompt({ text: "Hello", onEvent: () => {} });
+    session.cancel();
+    await session.close();
+
+    expect(
+      methods(await readLog(logFile), "_reasonix.io/session/steer"),
+    ).toHaveLength(0);
   });
 });

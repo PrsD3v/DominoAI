@@ -1,6 +1,6 @@
 # DominoAI - Project Overview
 
-<!-- blueprint:source-hash 74dc96cb6685d12f0c099610f13a49f2c8ab40cbc07ee1d450d85dfe88b4a82d -->
+<!-- blueprint:source-hash 89cb346094216f8b7daf45997cb3a831206e26feb5c80387af3d51ec26fe2a1a -->
 
 > A local-first workflow control layer for AI coding agents, open source under MIT.
 
@@ -82,8 +82,13 @@ runtime-independent workflow engine.
 6. **Resume, load, and list** - continuing a Reasonix session and replaying its
    history stay distinct, each with observable tests establishing its semantics
    against the installed Reasonix version.
-7. **Optional steering** - discovered from runtime metadata, optional, and
-   characterized as interrupt or queue.
+7. **Optional steering** - split into two stages:
+   - **7A Steering discovery and optional capability** - the advertised method is
+     read from runtime metadata and steering is an optional, capability-gated
+     session operation.
+   - **7B Live steering characterization - BLOCKED / DEFERRED** - interrupt
+     versus queue stays unproven until a disposable credential and a writable
+     Reasonix home exist.
 8. **Workflow and skill definition model** - versioned and validated, owned by
    Domino, importing nothing from an external format yet.
 9. **Workflow engine core** - defines the persistence contracts and runs on an

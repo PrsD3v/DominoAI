@@ -80,6 +80,32 @@ function isSupportedCapability(value: unknown): boolean {
   return value === true || isRecord(value);
 }
 
+/**
+ * Read the steering method advertised in an `initialize` result.
+ *
+ * Returns `null` unless the runtime reports a non-empty method string under
+ * `agentCapabilities._meta["reasonix.io"].sessionSteer.method`.
+ */
+export function parseSteeringMethod(value: unknown): string | null {
+  if (!isRecord(value) || !isRecord(value.agentCapabilities)) {
+    return null;
+  }
+
+  const meta = value.agentCapabilities._meta;
+
+  if (!isRecord(meta) || !isRecord(meta["reasonix.io"])) {
+    return null;
+  }
+
+  const sessionSteer = meta["reasonix.io"].sessionSteer;
+
+  if (!isRecord(sessionSteer) || !isNonEmptyString(sessionSteer.method)) {
+    return null;
+  }
+
+  return sessionSteer.method;
+}
+
 /** Normalize an `initialize` result into Domino capabilities. */
 export function parseInitializeResult(value: unknown): RuntimeCapabilities {
   if (!isRecord(value)) {
@@ -120,6 +146,7 @@ export function parseInitializeResult(value: unknown): RuntimeCapabilities {
       resume: isSupportedCapability(sessionCapabilities.resume),
       close: isSupportedCapability(sessionCapabilities.close),
     },
+    steering: parseSteeringMethod(value) !== null,
   };
 }
 

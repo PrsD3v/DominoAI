@@ -45,9 +45,17 @@ function initializeResult() {
       promptCapabilities: { image: true, audio: false, embeddedContext: true },
       mcpCapabilities: { http: true, sse: false },
       _meta: {
-        "reasonix.io": {
-          sessionSteer: { method: "_reasonix.io/session/steer" },
-        },
+        "reasonix.io":
+          mode === "no-steer-capability"
+            ? {}
+            : {
+                sessionSteer: {
+                  method:
+                    mode === "steer-malformed"
+                      ? ""
+                      : "_reasonix.io/session/steer",
+                },
+              },
       },
     },
     agentInfo: { name: "fake-agent", version: "1.0.0" },
@@ -271,6 +279,32 @@ async function handleMessage(message) {
 
       send({ jsonrpc: "2.0", id, result: {} });
       return;
+    case "_reasonix.io/session/steer": {
+      if (mode === "steer-error") {
+        send({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32000, message: "scripted steer failure" },
+        });
+        return;
+      }
+
+      const pending = pendingPrompts.get(params?.sessionId);
+
+      if (mode === "prompt-await-steer" && pending) {
+        pendingPrompts.delete(params.sessionId);
+        send({ jsonrpc: "2.0", id, result: {} });
+        send({
+          jsonrpc: "2.0",
+          id: pending.id,
+          result: { stopReason: "end_turn" },
+        });
+        return;
+      }
+
+      send({ jsonrpc: "2.0", id, result: {} });
+      return;
+    }
     case "session/prompt": {
       const sessionId = params?.sessionId;
 
@@ -288,6 +322,12 @@ async function handleMessage(message) {
         });
 
       const respond = (result) => send({ jsonrpc: "2.0", id, result });
+
+      if (mode === "prompt-await-steer") {
+        pendingPrompts.set(sessionId, { id });
+        stream("first");
+        return;
+      }
 
       if (mode === "prompt-cancel") {
         pendingPrompts.set(sessionId, { id });

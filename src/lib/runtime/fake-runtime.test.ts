@@ -120,6 +120,22 @@ describe("createFakeRuntime", () => {
       agent: { name: "fake", version: "1.0.0" },
       loadSession: false,
       sessions: { list: false, resume: false, close: true },
+      steering: false,
+    });
+  });
+
+  it("rejects steering because it is not advertised", async () => {
+    const runtime = createFakeRuntime();
+    const session = await runtime.createSession({ workspaceRoot: WORKSPACE });
+
+    const error = await session
+      .steer("change course")
+      .catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(UnsupportedCapabilityError);
+    expect(error).toMatchObject({
+      name: "UnsupportedCapabilityError",
+      capability: "steering",
     });
   });
 

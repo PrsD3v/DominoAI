@@ -68,7 +68,15 @@ Feature 3 remains open.
 - [x] 5. **Cancel and failure safety** - Verify `session/cancel` produces a cancelled result, and make EOF, crash, and timeout end pending work instead of hanging it.
 - [x] 6A. **Resume, load, and list adapter** - Keep `resume` (continue the session) and `load` (replay history) distinct in the runtime contract and ACP adapter, implement session summaries from `session/list`, and prove the local paths with the fake agent. Acceptance: capability-gated `session/resume`, `session/load`, and `session/list`; `load` replays normalized history events while `resume` does not; malformed list results and malformed summary entries are rejected; a live `session/list` test passes against the installed Reasonix version; no live resume or load claim is made.
 - **6B. Live Reasonix resume and load verification - BLOCKED / DEFERRED** - Do not mark complete. Original acceptance remains: prove against the installed Reasonix CLI with a valid, disposable credential and a writable Reasonix home that `session/resume` continues the same persisted session without replaying history, and that `session/load` replays the persisted transcript as observable normalized events, with distinct tests for each. Blocker: no valid disposable credential and no writable Reasonix home in the current environment. Resume only after both exist and both live tests pass. This remains required before Feature 6 completion or any live resume or load capability claim.
-- [ ] 7. **Optional steering** - Discover the steering method from runtime metadata, expose it as an optional capability, and characterize whether it interrupts the current prompt or queues behind it.
+### Feature 7 - Optional steering (OPEN)
+
+Feature 7A is buildable locally. Feature 7B is blocked on the same live-runtime
+prerequisites as 3B and 6B and is intentionally outside the selectable checklist
+so `/feature` can proceed to Feature 8 while Feature 7 remains open.
+
+- [x] 7A. **Steering discovery and optional capability** - Read the advertised steering method from the runtime's `initialize` metadata, expose steering as an optional capability, and add a session steering operation that fails typed when the runtime did not advertise it. Acceptance: the method name comes only from runtime metadata and is never hardcoded; a missing or malformed metadata entry normalizes to no steering support; a steer request sends exactly the observed `{ sessionId, prompt: [{ type: "text", text }] }` to the advertised method; capability denial, no active prompt, and a closed session reject without a wire request; errors propagate unchanged; fake-agent tests prove acceptance, denial, and failure paths; no interrupt or queue behavior is claimed.
+
+- **7B. Live steering characterization - BLOCKED / DEFERRED** - Do not mark complete. Original acceptance remains: with a disposable credential and a writable Reasonix home, send a steer during an active prompt and record whether the active prompt is interrupted, the steer queues behind it, or behavior differs by model. Blocker: no valid disposable credential is available and there is no writable Reasonix home in the current environment. Resume only after both are available and the live test actually passes. This remains required before Feature 7 completion or any interrupt or queue claim.
 
 ## Workflow engine and storage
 

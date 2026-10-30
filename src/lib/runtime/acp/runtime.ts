@@ -18,6 +18,7 @@ import {
   parsePromptResult,
   parseSessionListResult,
   parseSessionNewResult,
+  parseSteeringMethod,
   type InitializeParams,
 } from "./protocol";
 import {
@@ -38,6 +39,11 @@ export interface AcpRuntimeOptions extends TransportOptions {
 
 type RuntimeState = "open" | "closing" | "closed";
 
+interface AcpHandshake {
+  capabilities: RuntimeCapabilities;
+  steeringMethod: string | null;
+}
+
 /** Start an ACP agent process, perform the handshake, and return its runtime. */
 export async function createAcpRuntime(
   options: AcpRuntimeOptions,
@@ -45,22 +51,26 @@ export async function createAcpRuntime(
   const { clientInfo = DEFAULT_CLIENT_INFO, ...transportOptions } = options;
   const transport = await startTransport(transportOptions);
 
-  let capabilities: RuntimeCapabilities;
+  let handshake: AcpHandshake;
 
   try {
-    capabilities = await initialize(transport, clientInfo);
+    handshake = await initialize(transport, clientInfo);
   } catch (error) {
     await transport.close();
     throw error;
   }
 
-  return createRuntime(transport, capabilities);
+  return createRuntime(
+    transport,
+    handshake.capabilities,
+    handshake.steeringMethod,
+  );
 }
 
 async function initialize(
   transport: Transport,
   clientInfo: RuntimeAgentInfo,
-): Promise<RuntimeCapabilities> {
+): Promise<AcpHandshake> {
   const params: InitializeParams = {
     protocolVersion: ACP_PROTOCOL_VERSION,
     clientInfo,
@@ -69,15 +79,17 @@ async function initialize(
 
   const result = await transport.request<unknown>("initialize", params);
   const capabilities = parseInitializeResult(result);
+  const steeringMethod = parseSteeringMethod(result);
 
   transport.notify("initialized", {});
 
-  return capabilities;
+  return { capabilities, steeringMethod };
 }
 
 function createRuntime(
   transport: Transport,
   capabilities: RuntimeCapabilities,
+  steeringMethod: string | null,
 ): AgentRuntime {
   let state: RuntimeState = "open";
   let shutdown: Promise<void> | null = null;
@@ -194,6 +206,26 @@ function createRuntime(
           prompting = false;
           cancelSent = false;
         }
+      },
+      async steer(text: string): Promise<void> {
+        assertOpen("session/steer");
+
+        if (closed) {
+          throw new Error("Cannot steer: session is closed");
+        }
+
+        if (!steeringMethod) {
+          throw new UnsupportedCapabilityError("steering");
+        }
+
+        if (!prompting) {
+          throw new Error("Cannot steer: no active prompt");
+        }
+
+        await transport.request(steeringMethod, {
+          sessionId: id,
+          prompt: [{ type: "text", text }],
+        });
       },
       cancel(): void {
         if (state !== "open" || closed || !prompting || cancelSent) {

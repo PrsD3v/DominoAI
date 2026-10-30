@@ -8,6 +8,7 @@ import {
   parsePromptResult,
   parseSessionListResult,
   parseSessionNewResult,
+  parseSteeringMethod,
 } from "./protocol";
 
 const OBSERVED_INITIALIZE_RESULT = {
@@ -42,6 +43,7 @@ const NORMALIZED = {
   agent: { name: "reasonix", version: "v2.54.0" },
   loadSession: true,
   sessions: { list: true, resume: true, close: true },
+  steering: true,
 };
 
 describe("parseInitializeResult", () => {
@@ -78,6 +80,7 @@ describe("parseInitializeResult", () => {
       agent: null,
       loadSession: false,
       sessions: { list: false, resume: false, close: false },
+      steering: false,
     });
   });
 
@@ -158,6 +161,76 @@ describe("parseInitializeResult", () => {
       reportedVersion: 2,
       supportedVersion: 1,
     });
+  });
+});
+
+describe("parseSteeringMethod", () => {
+  function withMeta(reasonixIo: unknown): Record<string, unknown> {
+    return {
+      protocolVersion: 1,
+      agentCapabilities: { _meta: { "reasonix.io": reasonixIo } },
+    };
+  }
+
+  it("returns the advertised method", () => {
+    expect(
+      parseSteeringMethod(
+        withMeta({
+          sessionSteer: { method: "_reasonix.io/session/steer" },
+        }),
+      ),
+    ).toBe("_reasonix.io/session/steer");
+  });
+
+  it("returns null when the method is absent or malformed", () => {
+    for (const value of [
+      undefined,
+      null,
+      [],
+      "initialize",
+      { protocolVersion: 1 },
+      { protocolVersion: 1, agentCapabilities: {} },
+      { protocolVersion: 1, agentCapabilities: { _meta: {} } },
+      withMeta(undefined),
+      withMeta(null),
+      withMeta({}),
+      withMeta({ sessionSteer: { schemaVersion: 1 } }),
+      withMeta({ sessionSteer: { method: "" } }),
+      withMeta({ sessionSteer: { method: 1 } }),
+      withMeta({ sessionSteer: { method: null } }),
+      withMeta({ sessionSteer: "steer" }),
+      withMeta({ sessionSteer: null }),
+    ]) {
+      expect(parseSteeringMethod(value)).toBeNull();
+    }
+  });
+
+  it("matches the normalized steering capability", () => {
+    for (const value of [
+      OBSERVED_INITIALIZE_RESULT,
+      withMeta({ sessionSteer: { schemaVersion: 1 } }),
+      withMeta({ sessionSteer: { method: "" } }),
+      { protocolVersion: 1 },
+    ]) {
+      expect(parseInitializeResult(value).steering).toBe(
+        parseSteeringMethod(value) !== null,
+      );
+    }
+  });
+
+  it("normalizes a missing steering method to unsupported", () => {
+    const capabilities: Record<string, unknown> = {
+      ...OBSERVED_INITIALIZE_RESULT.agentCapabilities,
+    };
+
+    delete capabilities._meta;
+
+    expect(
+      parseInitializeResult({
+        ...OBSERVED_INITIALIZE_RESULT,
+        agentCapabilities: capabilities,
+      }).steering,
+    ).toBe(false);
   });
 });
 

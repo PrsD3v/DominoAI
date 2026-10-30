@@ -26,6 +26,7 @@ export interface RuntimeCapabilities {
   readonly agent: RuntimeAgentInfo | null;
   readonly loadSession: boolean;
   readonly sessions: RuntimeSessionCapabilities;
+  readonly steering: boolean;
 }
 
 /** Raised when a caller asks for an operation the runtime did not advertise. */
@@ -75,6 +76,8 @@ export interface PromptResult {
 export interface Session {
   readonly id: string;
   prompt(request: PromptRequest): Promise<PromptResult>;
+  /** Send steering text to the active prompt when the runtime advertised support. */
+  steer(text: string): Promise<void>;
   /** Request cancellation of the active prompt; the prompt result is the only evidence. */
   cancel(): void;
   close(): Promise<void>;
