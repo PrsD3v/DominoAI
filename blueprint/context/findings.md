@@ -194,6 +194,11 @@ copies later features will follow.
 `@/lib/...` in the same change that fixes F-08. No behavior changes.
 **Resolution:** Re-examined on 2026-10-30 during the independent review of
 Feature 10; the new files still use relative type imports. Stays open.
+Re-checked on 2026-10-30 during the Feature 11 independent review: the new
+`src/lib/projects/registration.ts` does import `@/types/persistence`, so the
+drift did not spread into this module and its test file keeps relative runtime
+imports only as the spec requires. The listed Feature 10 sites still need the
+change. Stays open.
 
 ### F-11 [P2] open - A failed history append loses the interruption record for good
 
@@ -296,4 +301,89 @@ false-confidence gap in the test, not a live defect.
 **Suggested fix:** Store the local object (`const run = baseRun(); await
 store.createRun(run);`), mutate it after the write, then assert the stored
 record is unchanged.
+**Resolution:** Open.
+
+### F-16 [P3] open - An explicit `null` is silently treated as an omitted value
+
+**File:** src/lib/projects/registration.ts:114
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality, security)
+**Why it matters:** `options.configuration ?? {}` (`registration.ts:114`) and the
+two `?? []` spreads for `workflowVersionIds` and `skillVersionIds` (`:124`,
+`:125`) cannot tell an explicit `null` from a missing property. The spec requires
+`configuration` to be a JSON-serializable plain object and requires
+`invalid-configuration` otherwise, and the same function rejects `null` correctly
+one field over: `validateProfileId` (`:174`) throws `invalid-profile-id` for
+`null` because it tests `=== undefined` first. Reproduced on Node 24 by calling
+`registerProject({ configuration: null, workflowVersionIds: null,
+skillVersionIds: null })` against a fake store: registration succeeds and the
+stored record holds `{}`, `[]`, `[]`. Feature 15 will parse an HTTP body into
+these fields, where `null` is ordinary JSON any client can send, so malformed
+input is stored as if it had been left out. Nothing is lost, because the defaults
+are the only meaning `null` could carry, which keeps this at P3.
+**Suggested fix:** Validate first, then default: treat only `undefined` as
+omitted (`const configuration = options.configuration === undefined ? {} :
+options.configuration;`) so `null` reaches `isRecord` and raises
+`invalid-configuration`. Same shape for the two selection lists.
+**Resolution:** Open.
+
+### F-17 [P3] open - `ENOTDIR` and `ELOOP` escape the typed registration reasons
+
+**File:** src/lib/projects/registration.ts:222
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `mapRootError` (`registration.ts:222-234`) converts only
+`ENOENT`, `EACCES`, and `EPERM` and returns every other error unchanged, which
+matches the spec's root-mapping line. Every remaining root-resolution failure
+therefore reaches the caller as a raw Node error with no `reason`, even when the
+supplied path itself caused it. Reproduced on Node 24: `registerProject` with
+`<cwd>/package.json/nested` rejects with a plain `Error`
+(`reason: undefined`, `code: "ENOTDIR"`, not a `ProjectRegistrationError`), while
+`<cwd>/package.json` rejects correctly as `ProjectRegistrationError` /
+`root-not-directory`. A symlink loop reaches the same path through `ELOOP`. The
+outcome is a misleading error, never a wrong registration, but a caller that
+branches on `reason`, which Features 14 and 15 will do, also has to handle an
+untyped failure for a mistyped path.
+**Suggested fix:** Map `ENOTDIR` to `root-not-directory` and choose `ELOOP`
+explicitly (`root-missing` or `root-inaccessible`); it is one condition in
+`mapRootError`. That changes the spec's "other errors propagate unchanged" line,
+so it needs the user's decision rather than an automatic repair.
+**Resolution:** Open.
+
+### F-18 [P3] open - Canonical-root resolution is duplicated from containment with a different error taxonomy
+
+**File:** src/lib/projects/registration.ts:216
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `resolveExistingPath` and `resolveWorkspaceRoot`
+(`registration.ts:216-247`) repeat the `realpath` + `stat` + `isDirectory` core of
+`canonicalDirectory` in `src/lib/workflow/containment.ts:75`, but the two copies
+map failures differently: containment maps every failure, including `EACCES` and
+`EPERM`, to `missing`, while registration distinguishes `root-missing`,
+`root-not-directory`, and `root-inaccessible`. The spec's notes tell this feature
+not to re-implement Feature 9's containment, and the part that was re-implemented
+is the canonicalization that decides which workspace root identifies a project,
+which the spec says the workspace allowlist derives from. Any later change to
+canonicalization (case handling, trailing separators, a new error code) now has to
+be made twice, and the two copies already disagree about what an unreadable
+directory means.
+**Suggested fix:** Extract one shared helper that returns a discriminated
+canonicalization result and let each caller map it into its own error type.
+Roughly 15 lines disappear and both callers keep their current outward behavior.
+**Resolution:** Open.
+
+### F-19 [P3] open - Three spec-stated validation behaviors have no test
+
+**File:** src/lib/projects/registration.test.ts:436
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: tests)
+**Why it matters:** The suite covers every error reason and both storage paths
+well, but three spec-stated behaviors are asserted nowhere. Duplicate selection is
+exercised only for `workflowVersionIds` (`registration.test.ts:436`), while
+`skillVersionIds` duplicates run through a separate loop
+(`registration.ts:265`) that no test reaches. The spec says the name is stored
+exactly as supplied with no trimming, but the only name assertion is
+`toBe("Domino")` (`:114`), so a future `trim()` in `validateName` would pass
+unnoticed. `root-inaccessible` is in the error union and in `mapRootError`, and no
+test ever takes that branch, so an `EACCES`/`EPERM` regression stays silent.
+**Suggested fix:** Add the skill duplicate case beside the existing duplicate
+test, register with `name: "  Domino  "` and assert verbatim storage, and take the
+inaccessible branch with `chmod 0o000` on a temporary directory, skipping the
+case with a visible reason only when the runner is root.
 **Resolution:** Open.
