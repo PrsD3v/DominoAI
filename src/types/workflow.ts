@@ -34,6 +34,7 @@ export type WorkflowHistoryKind =
   | "run_cancelled"
   | "run_completed"
   | "run_failed"
+  | "run_interrupted"
   | "step_started"
   | "step_attempt_failed"
   | "step_completed"

@@ -7,29 +7,7 @@ import type {
   WorkflowHistoryEntry,
   WorkflowRun,
 } from "../../types/workflow";
-
-/** Raised when an in-memory record cannot be created or updated. */
-export class WorkflowRecordError extends Error {
-  readonly operation: "create" | "update";
-  readonly recordKind: string;
-  readonly id: string;
-
-  constructor(
-    operation: "create" | "update",
-    recordKind: string,
-    id: string,
-  ) {
-    super(
-      operation === "create"
-        ? `A ${recordKind} with id "${id}" already exists`
-        : `No ${recordKind} with id "${id}" exists`,
-    );
-    this.name = "WorkflowRecordError";
-    this.operation = operation;
-    this.recordKind = recordKind;
-    this.id = id;
-  }
-}
+import { WorkflowRecordError } from "./persistence-errors";
 
 function copy<T>(value: T): T {
   return structuredClone(value);

@@ -8,10 +8,8 @@ import type {
   WorkflowHistoryEntry,
   WorkflowRun,
 } from "../../types/workflow";
-import {
-  createInMemoryWorkflowPersistence,
-  WorkflowRecordError,
-} from "./in-memory-persistence";
+import { createInMemoryWorkflowPersistence } from "./in-memory-persistence";
+import { WorkflowRecordError } from "./persistence-errors";
 
 const PLAN: WorkflowExecutionPlan = {
   workflowId: "workflow-1",

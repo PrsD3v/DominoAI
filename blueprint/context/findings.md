@@ -48,6 +48,12 @@ calls suspend on I/O and the interleaving becomes ordinary.
 the write when the status changed (keep the existing typed state error), or give
 the persistence update an expected-current-status precondition so a stale write
 is rejected instead of applied. Do not add a lock or a scheduler.
+**Resolution:** Re-examined on 2026-10-30 during the Feature 10 audit against the
+shipped `SqliteWorkflowStore`. The store's methods do their SQL synchronously,
+but the engine still `await`s every one of them, and an `await` of an
+already-settled promise yields to the microtask queue. The read-then-write pair
+in `pauseRun`, `cancelRun`, and `continueRun` therefore spans an ordinary await
+boundary with the new store, exactly as predicted. Status unchanged.
 
 ### F-03 [P2] open - A rejected background run task wedges the engine and rejects unhandled
 
@@ -150,6 +156,9 @@ and `../../types/workflow` (`engine.ts:1`, `engine.ts:2`,
 two import conventions inside one small module that later features must copy.
 **Suggested fix:** Switch the five import sites to `@/types/runtime` and
 `@/types/workflow`. No behavior changes.
+**Resolution:** Re-examined on 2026-10-30: `engine.ts` is unchanged in the
+Feature 10 build and the same convention drifted into the new persistence files,
+so the finding stays open. See F-10 for the new sites.
 
 ### F-09 [P3] open - Attempt events are buffered and an append failure discards a successful result
 
@@ -168,3 +177,123 @@ ends.
 memory stays bounded and the write cost overlaps the prompt, and keep the event
 flush inside its own try/catch so a persistence failure is recorded in history
 without overwriting the attempt result.
+
+### F-10 [P3] open - The new persistence files bypass the `@/` import alias
+
+**File:** src/lib/workflow/sqlite/sqlite-store.ts:2
+**Found:** 2026-10-30 by /audit (scope: current; lens: quality)
+**Why it matters:** `coding-standards.md` requires imports through `@/*`. The
+Feature 10 files repeat the Feature 9 drift instead of fixing it:
+`sqlite-store.ts:2`, `:7`, `:22`, `:32`, `sqlite/migrations.ts:2`,
+`startup-reconciliation.ts:1`, and the three new test files all import
+`../../../types/...` or `../../types/...`, while sibling modules such as
+`execution-plan.ts:1` and `projection.ts:1` use `@/types/workflow`. The result is
+now three features of files that must be converted, and the new modules are the
+copies later features will follow.
+**Suggested fix:** Switch the new import sites to `@/types/...` and
+`@/lib/...` in the same change that fixes F-08. No behavior changes.
+**Resolution:** Re-examined on 2026-10-30 during the independent review of
+Feature 10; the new files still use relative type imports. Stays open.
+
+### F-11 [P2] open - A failed history append loses the interruption record for good
+
+**File:** src/lib/workflow/startup-reconciliation.ts:47
+**Found:** 2026-10-30 by /audit (scope: current; lens: quality, security)
+**Why it matters:** Each reconciled run takes two separate persistence writes:
+`updateRun` marks it `interrupted` (`:47`), then `appendHistory` writes the single
+`run_interrupted` entry (`:48`). The status write lands first, so any failure or
+process stop between the two leaves a run that permanently looks reconciled. The
+next call skips it because it is no longer active, so the missing history entry is
+never repaired and the contract's "exactly one `run_interrupted` history entry"
+silently becomes zero. Reproduced by wrapping the in-memory store so
+`appendHistory` rejects once: the first call throws, the run is already
+`interrupted`, and a second call returns `[]` with `listHistory` empty. The same
+window exists for a real crash, a full disk, or a history id collision with the
+derived `${run.id}:interrupted` id.
+**Suggested fix:** On a second call, also repair `interrupted` runs that lack
+their deterministic `run_interrupted` entry (read history, append when absent),
+or add a store-level transaction that updates the run and appends the entry
+atomically. The first option needs no interface change.
+**Resolution:** Re-examined on 2026-10-30 during the independent review. The
+two writes are still separate in `startup-reconciliation.ts:47-48`, so the
+window stands. Stays open.
+
+### F-12 [P3] open - `createRun` accepts a plan that `getRun` then refuses
+
+**File:** src/lib/workflow/sqlite/sqlite-store.ts:169
+**Found:** 2026-10-30 by /audit (scope: current; lens: quality)
+**Why it matters:** `decodePlan` requires at least one step (`:169`), but
+`createRun` (`:526`) writes any plan the caller passes. A run created with
+`steps: []` is accepted and stored, and every later read of it throws
+`WorkflowPersistenceError("decode")`. The in-memory store returns such a record
+unchanged, so the two implementations differ, and a store that accepts a write it
+cannot read back is a durability contract hole. Reproduced against
+`openSqliteWorkflowStore`: the create resolves, then `getRun` rejects with
+`code: "decode"`. The engine cannot produce this today because
+`validateExecutionPlan` refuses an empty plan, so the reachable caller is direct
+persistence use in a later feature.
+**Suggested fix:** Validate the plan (at least one step, and the documented decode
+invariants) in `createRun`/`updateRun` and throw the `decode` or `invalid` code
+there, so a write that the store cannot read back is refused at the write.
+**Resolution:** Re-examined on 2026-10-30 during the independent review. The
+same write/read asymmetry also covers status, step status, history kind, and
+event shape: `insertRow` stores them unvalidated (`sqlite-store.ts:526`, `:766`,
+`:793`) and only the read path rejects them. One write-path validation fix
+covers all of them. Stays open.
+
+### F-13 [P3] open - Unique-versus-conflict classification reads SQLite's message text
+
+**File:** src/lib/workflow/sqlite/sqlite-store.ts:227
+**Found:** 2026-10-30 by /audit (scope: current; lens: quality)
+**Why it matters:** `mapWriteError` distinguishes a duplicate id from a repeated
+`(definitionId, version)` pair by matching `/.id(,|$)/` against the SQLite error
+message, because both surface as `errcode` 2067. The documented contract says a
+duplicate id raises `WorkflowRecordError` and a repeated pair raises
+`WorkflowPersistenceError("conflict")`, so any change in SQLite's or Node's error
+text silently turns one into the other, and the tests only pin today's wording.
+**Suggested fix:** Work from the constraint itself instead of the text, for
+example by checking the id before inserting (`SELECT 1 ... WHERE id = ?`) and
+letting the composite unique constraint map to `conflict`, or by catching the
+error and re-reading which column set collided. Keep the existing tests.
+**Resolution:** Re-examined on 2026-10-30 during the independent review;
+`mapWriteError` still matches `/.id(,|$)/` against the SQLite message
+(`sqlite-store.ts:227`). Stays open.
+
+### F-14 [P3] open - Duplicate-id, decode-branch, and update-rollback paths lack focused tests
+
+**File:** src/lib/workflow/sqlite/sqlite-store.test.ts:233
+**Found:** 2026-10-30 by /audit (scope: current; lens: tests)
+**Why it matters:** The suite proves the main paths well, but the spec's step 2
+and 5 done-whens reach further than the assertions do. Duplicate-id
+`WorkflowRecordError` is asserted only for runs, workflow definitions, and
+workflow versions; step runs, approvals, session references, runtime events,
+history entries, skill definitions, skill versions, and project version
+selections are untested. Decode failures are asserted for a truncated plan, a
+wrong-shaped event, an unknown status, an unknown history kind, and a
+wrong-shaped project configuration, but not for the boolean, integer, optional
+string, and plan-shape branches of `readBoolean`, `readInteger`,
+`readOptionalString`, and `decodePlan`. Selection replacement is tested on update,
+but the rollback of a failed `updateProject` (old selections preserved) is not,
+while the create rollback is.
+**Suggested fix:** Add the missing duplicate-id cases through a table-driven
+test, one corrupted-value case per decode helper, and one assertion that a failed
+`updateProject` leaves the previous selections in place.
+**Resolution:** Re-examined on 2026-10-30 during the independent review; the
+suite still covers only the cases this entry lists. Stays open.
+
+### F-15 [P3] open - The mutation-isolation test never mutates the object that was stored
+
+**File:** src/lib/workflow/sqlite/sqlite-store.test.ts:207
+**Found:** 2026-10-30 by /audit independent (scope: current; lens: tests)
+**Why it matters:** `seed(store)` builds its own `baseRun()` internally
+(`:147-150`), while the test's local `run = baseRun()` (`:209`) is never passed
+to the store. Mutating `run.status` (`:214`) therefore proves nothing about
+stored-input isolation, although the spec's step 2 done-when explicitly requires
+"mutating ... a stored input object does not change stored state". The
+returned-record half of the check (`:216-230`) is real, and the implementation
+is safe because values are serialized into SQLite at write time, so this is a
+false-confidence gap in the test, not a live defect.
+**Suggested fix:** Store the local object (`const run = baseRun(); await
+store.createRun(run);`), mutate it after the write, then assert the stored
+record is unchanged.
+**Resolution:** Open.
