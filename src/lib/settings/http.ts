@@ -10,6 +10,7 @@ const STATUS_BY_CODE: Record<SettingsErrorCode, number> = {
   unsupported_media_type: 415,
   invalid_secret: 400,
   profile_not_found: 404,
+  project_not_found: 404,
   provider_unknown: 400,
   model_unknown: 400,
   api_key_env_unknown: 400,

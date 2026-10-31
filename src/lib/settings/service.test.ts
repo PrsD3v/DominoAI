@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import type { RuntimeProviderCatalog } from "../../types/runtime-catalog";
-import type { RuntimeProfilePersistence } from "../../types/persistence";
+import type {
+  Project,
+  ProjectPersistence,
+  RuntimeProfilePersistence,
+} from "../../types/persistence";
 import type {
   CredentialStatus,
   CredentialStore,
@@ -11,6 +18,10 @@ import {
   InvalidCredentialSecretError,
 } from "../runtime/reasonix/env-file-store";
 import { WorkflowRecordError } from "../workflow/persistence-errors";
+import {
+  openSqliteWorkflowStore,
+  type SqliteWorkflowStore,
+} from "../workflow/sqlite/sqlite-store";
 import {
   createSettingsService,
   SettingsError,
@@ -82,6 +93,28 @@ class MemoryProfileStore implements RuntimeProfilePersistence {
   }
 }
 
+class MemoryProjectStore implements ProjectPersistence {
+  readonly records = new Map<string, Project>();
+
+  async createProject(project: Project): Promise<void> {
+    this.records.set(project.id, structuredClone(project));
+  }
+
+  async getProject(id: string): Promise<Project | null> {
+    return this.records.get(id) ?? null;
+  }
+
+  async updateProject(project: Project): Promise<void> {
+    this.records.set(project.id, structuredClone(project));
+  }
+
+  async listProjects(): Promise<readonly Project[]> {
+    return [...this.records.values()].map((project) =>
+      structuredClone(project),
+    );
+  }
+}
+
 class MemoryCredentialStore implements CredentialStore {
   readonly values = new Map<string, string>();
   readonly statusCalls: string[] = [];
@@ -108,10 +141,12 @@ class MemoryCredentialStore implements CredentialStore {
 
 function setup(overrides: Partial<SettingsServiceDeps> = {}) {
   const profiles = new MemoryProfileStore();
+  const projects = new MemoryProjectStore();
   const credentials = new MemoryCredentialStore();
   let nextId = 0;
   const service = createSettingsService({
     profiles,
+    projects,
     credentials,
     loadCatalog: async () => catalog,
     runConnectionTest: async () => ({ outcome: "succeeded" }),
@@ -120,7 +155,7 @@ function setup(overrides: Partial<SettingsServiceDeps> = {}) {
     ...overrides,
   });
 
-  return { service, profiles, credentials };
+  return { service, profiles, projects, credentials };
 }
 
 async function errorFrom(promise: Promise<unknown>): Promise<unknown> {
@@ -522,6 +557,178 @@ describe("settings service", () => {
     expectSettingsError(
       await errorFrom(service.getCredentialStatus("profile-1")),
       "persistence_error",
+    );
+  });
+});
+
+const PROJECT_AT = "2026-10-30T00:00:00.000Z";
+const PROJECT_UPDATED_AT = "2026-10-30T05:00:00.000Z";
+
+function sqliteProfile(id: string): RuntimeProfile {
+  return {
+    id,
+    label: id,
+    adapterId: "reasonix",
+    providerName: "deepseek",
+    model: "deepseek-flash",
+    apiKeyEnv: "DEEPSEEK_API_KEY",
+    credentialRef: {
+      kind: "reasonix-env",
+      providerName: "deepseek",
+      apiKeyEnv: "DEEPSEEK_API_KEY",
+    },
+    createdAt: PROJECT_AT,
+    updatedAt: PROJECT_AT,
+  };
+}
+
+function sqliteProject(): Project {
+  return {
+    id: "project-1",
+    name: "Domino",
+    workspaceRoot: "/work/domino",
+    configuration: {},
+    workflowVersionIds: [],
+    skillVersionIds: [],
+    createdAt: PROJECT_AT,
+    updatedAt: PROJECT_AT,
+  };
+}
+
+describe("project default profile with SQLite persistence", () => {
+  const directories: string[] = [];
+  const stores: SqliteWorkflowStore[] = [];
+
+  afterEach(async () => {
+    for (const store of stores.splice(0)) {
+      store.close();
+    }
+
+    await Promise.all(
+      directories.splice(0).map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+      ),
+    );
+  });
+
+  async function sqliteSetup() {
+    const directory = await mkdtemp(join(tmpdir(), "domino-project-profile-"));
+    directories.push(directory);
+    const store = openSqliteWorkflowStore({
+      path: join(directory, "domino.db"),
+    });
+    stores.push(store);
+    const service = createSettingsService({
+      profiles: store,
+      projects: store,
+      credentials: new MemoryCredentialStore(),
+      loadCatalog: async () => catalog,
+      runConnectionTest: async () => ({ outcome: "succeeded" }),
+      now: () => PROJECT_UPDATED_AT,
+    });
+
+    await store.createProject(sqliteProject());
+    return { store, service };
+  }
+
+  it("sets a persisted profile id and keeps only the opaque reference", async () => {
+    const { store, service } = await sqliteSetup();
+    await store.createRuntimeProfile(sqliteProfile("profile-1"));
+
+    const view = await service.updateProjectDefaultProfile("project-1", {
+      defaultRuntimeProfileId: "profile-1",
+    });
+
+    expect(view).toEqual({
+      projectId: "project-1",
+      defaultRuntimeProfileId: "profile-1",
+    });
+
+    const stored = await store.getProject("project-1");
+
+    expect(stored).toEqual({
+      ...sqliteProject(),
+      defaultRuntimeProfileId: "profile-1",
+      updatedAt: PROJECT_UPDATED_AT,
+    });
+    expect(stored).not.toHaveProperty("providerName");
+    expect(stored).not.toHaveProperty("credentialRef");
+    await expect(service.getProjectDefaultProfile("project-1")).resolves.toEqual(
+      view,
+    );
+  });
+
+  it("clears the reference", async () => {
+    const { store, service } = await sqliteSetup();
+    await store.createRuntimeProfile(sqliteProfile("profile-1"));
+    await service.updateProjectDefaultProfile("project-1", {
+      defaultRuntimeProfileId: "profile-1",
+    });
+
+    const view = await service.updateProjectDefaultProfile("project-1", {
+      defaultRuntimeProfileId: null,
+    });
+
+    expect(view).toEqual({
+      projectId: "project-1",
+      defaultRuntimeProfileId: null,
+    });
+
+    const stored = await store.getProject("project-1");
+
+    expect(stored).toEqual({
+      ...sqliteProject(),
+      updatedAt: PROJECT_UPDATED_AT,
+    });
+    expect(stored).not.toHaveProperty("defaultRuntimeProfileId");
+  });
+
+  it("rejects an unknown profile id and leaves the project unchanged", async () => {
+    const { store, service } = await sqliteSetup();
+
+    expectSettingsError(
+      await errorFrom(
+        service.updateProjectDefaultProfile("project-1", {
+          defaultRuntimeProfileId: "missing-profile",
+        }),
+      ),
+      "profile_not_found",
+    );
+
+    expect(await store.getProject("project-1")).toEqual(sqliteProject());
+  });
+
+  it.each([
+    ["missing field", {}],
+    ["empty string", { defaultRuntimeProfileId: "" }],
+    ["non-string", { defaultRuntimeProfileId: 42 }],
+    ["extra field", { defaultRuntimeProfileId: null, label: "x" }],
+    ["non-object", "profile-1"],
+  ])("rejects a malformed body: %s", async (_label, body) => {
+    const { store, service } = await sqliteSetup();
+
+    expectSettingsError(
+      await errorFrom(service.updateProjectDefaultProfile("project-1", body)),
+      "invalid_request",
+    );
+
+    expect(await store.getProject("project-1")).toEqual(sqliteProject());
+  });
+
+  it("rejects an unknown project", async () => {
+    const { service } = await sqliteSetup();
+
+    expectSettingsError(
+      await errorFrom(service.getProjectDefaultProfile("missing-project")),
+      "project_not_found",
+    );
+    expectSettingsError(
+      await errorFrom(
+        service.updateProjectDefaultProfile("missing-project", {
+          defaultRuntimeProfileId: null,
+        }),
+      ),
+      "project_not_found",
     );
   });
 });

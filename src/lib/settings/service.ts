@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { RuntimeProfilePersistence } from "../../types/persistence";
+import type {
+  Project,
+  ProjectPersistence,
+  RuntimeProfilePersistence,
+} from "../../types/persistence";
 import type {
   RuntimeProviderCatalog,
   RuntimeProviderCatalogEntry,
@@ -15,6 +19,7 @@ import type {
   SettingsErrorCode,
   SettingsErrorField,
   SettingsProfileView,
+  SettingsProjectDefaultProfileResponse,
 } from "../../types/settings-api";
 import { CredentialStoreError } from "../runtime/reasonix/env-file-store";
 import { WorkflowRecordError } from "../workflow/persistence-errors";
@@ -27,6 +32,7 @@ const MESSAGES: Record<SettingsErrorCode, string> = {
   unsupported_media_type: "The request body must be JSON.",
   invalid_secret: "The credential format is invalid.",
   profile_not_found: "The runtime profile was not found.",
+  project_not_found: "The project was not found.",
   provider_unknown: "The selected provider is not available.",
   model_unknown: "The selected model is not available for the provider.",
   api_key_env_unknown:
@@ -66,6 +72,7 @@ export class SettingsError extends Error {
 
 export interface SettingsServiceDeps {
   readonly profiles: RuntimeProfilePersistence;
+  readonly projects: ProjectPersistence;
   readonly credentials: CredentialStore;
   readonly loadCatalog: () => Promise<RuntimeProviderCatalog>;
   readonly runConnectionTest: (
@@ -84,6 +91,13 @@ export interface SettingsService {
   setCredential(id: string, input: unknown): Promise<CredentialStatus>;
   removeCredential(id: string): Promise<CredentialStatus>;
   testConnection(id: string): Promise<ConnectionTestResult>;
+  getProjectDefaultProfile(
+    projectId: string,
+  ): Promise<SettingsProjectDefaultProfileResponse>;
+  updateProjectDefaultProfile(
+    projectId: string,
+    input: unknown,
+  ): Promise<SettingsProjectDefaultProfileResponse>;
 }
 
 interface ProfileInput {
@@ -101,6 +115,7 @@ interface CatalogSelection {
 const PROFILE_FIELDS = ["label", "providerName", "model"] as const;
 const PROFILE_FIELD_SET = new Set<string>(PROFILE_FIELDS);
 const CREDENTIAL_FIELD = "secret";
+const PROJECT_PROFILE_FIELD = "defaultRuntimeProfileId";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -176,6 +191,42 @@ function parseSecretInput(value: unknown): string {
   }
 
   return secret as string;
+}
+
+function parseProjectProfileInput(value: unknown): string | null {
+  if (!isRecord(value)) {
+    throw new SettingsError("invalid_request", [
+      { field: "body", message: "must be an object" },
+    ]);
+  }
+
+  const fields = extraFields(value, new Set([PROJECT_PROFILE_FIELD]));
+  const profileId = value[PROJECT_PROFILE_FIELD];
+
+  if (
+    !(PROJECT_PROFILE_FIELD in value) ||
+    (profileId !== null && !isNonEmptyString(profileId))
+  ) {
+    fields.push({
+      field: PROJECT_PROFILE_FIELD,
+      message: "must be a non-empty string or null",
+    });
+  }
+
+  if (fields.length > 0) {
+    throw new SettingsError("invalid_request", fields);
+  }
+
+  return profileId === null ? null : (profileId as string);
+}
+
+function projectProfileView(
+  project: Project,
+): SettingsProjectDefaultProfileResponse {
+  return {
+    projectId: project.id,
+    defaultRuntimeProfileId: project.defaultRuntimeProfileId ?? null,
+  };
 }
 
 function credentialFailure(error: unknown): SettingsError {
@@ -262,6 +313,22 @@ export function createSettingsService(
     }
 
     return profile;
+  }
+
+  async function requireProject(projectId: string): Promise<Project> {
+    let project: Project | null;
+
+    try {
+      project = await deps.projects.getProject(projectId);
+    } catch {
+      throw new SettingsError("persistence_error");
+    }
+
+    if (project === null) {
+      throw new SettingsError("project_not_found");
+    }
+
+    return project;
   }
 
   async function statusFor(profile: RuntimeProfile): Promise<CredentialStatus> {
@@ -417,6 +484,61 @@ export function createSettingsService(
     }
   }
 
+  async function getProjectDefaultProfile(
+    projectId: string,
+  ): Promise<SettingsProjectDefaultProfileResponse> {
+    return projectProfileView(await requireProject(projectId));
+  }
+
+  async function updateProjectDefaultProfile(
+    projectId: string,
+    input: unknown,
+  ): Promise<SettingsProjectDefaultProfileResponse> {
+    const project = await requireProject(projectId);
+    const profileId = parseProjectProfileInput(input);
+
+    if (profileId !== null) {
+      let profile: RuntimeProfile | null;
+
+      try {
+        profile = await deps.profiles.getRuntimeProfile(profileId);
+      } catch {
+        throw new SettingsError("persistence_error");
+      }
+
+      if (profile === null) {
+        throw new SettingsError("profile_not_found");
+      }
+    }
+
+    const next: Project = {
+      id: project.id,
+      name: project.name,
+      workspaceRoot: project.workspaceRoot,
+      configuration: project.configuration,
+      ...(profileId === null ? {} : { defaultRuntimeProfileId: profileId }),
+      workflowVersionIds: project.workflowVersionIds,
+      skillVersionIds: project.skillVersionIds,
+      createdAt: project.createdAt,
+      updatedAt: now(),
+    };
+
+    try {
+      await deps.projects.updateProject(next);
+    } catch (error) {
+      if (
+        error instanceof WorkflowRecordError &&
+        error.operation === "update"
+      ) {
+        throw new SettingsError("project_not_found");
+      }
+
+      throw new SettingsError("persistence_error");
+    }
+
+    return projectProfileView(next);
+  }
+
   return {
     loadCatalog,
     listProfiles,
@@ -426,5 +548,7 @@ export function createSettingsService(
     setCredential,
     removeCredential,
     testConnection,
+    getProjectDefaultProfile,
+    updateProjectDefaultProfile,
   };
 }

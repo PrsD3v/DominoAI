@@ -71,6 +71,7 @@ export function createSettingsServiceFromEnvironment(
 
   return createSettingsService({
     profiles: store,
+    projects: store,
     credentials,
     loadCatalog: () =>
       loadReasonixProviderCatalog(() =>

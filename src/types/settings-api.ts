@@ -12,6 +12,7 @@ export const SETTINGS_ERROR_CODES = [
   "unsupported_media_type",
   "invalid_secret",
   "profile_not_found",
+  "project_not_found",
   "provider_unknown",
   "model_unknown",
   "api_key_env_unknown",
@@ -48,6 +49,11 @@ export interface SettingsProfilesResponse {
 
 export interface SettingsProfileResponse {
   readonly profile: RuntimeProfile;
+}
+
+export interface SettingsProjectDefaultProfileResponse {
+  readonly projectId: string;
+  readonly defaultRuntimeProfileId: string | null;
 }
 
 export interface SettingsCredentialStatusResponse {

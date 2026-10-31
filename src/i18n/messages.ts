@@ -141,6 +141,7 @@ const en = {
       invalid_secret:
         "The key format is not accepted. Use a single token with no spaces or quotes.",
       profile_not_found: "That runtime profile no longer exists.",
+      project_not_found: "That project no longer exists.",
       provider_unknown: "The selected provider is no longer available.",
       model_unknown:
         "The selected model is no longer available for this provider.",
@@ -321,6 +322,7 @@ const fa: Messages = {
       invalid_secret:
         "قالب کلید پذیرفته نیست. یک توکن بدون فاصله یا کوتیشن وارد کن.",
       profile_not_found: "آن پروفایل Runtime دیگر وجود ندارد.",
+      project_not_found: "آن پروژه دیگر وجود ندارد.",
       provider_unknown: "Provider انتخاب‌شده دیگر در دسترس نیست.",
       model_unknown: "مدل انتخاب‌شده دیگر برای این Provider در دسترس نیست.",
       api_key_env_unknown:

@@ -24,6 +24,8 @@ function serviceWith(overrides: Partial<SettingsService>): SettingsService {
     setCredential: unexpected,
     removeCredential: unexpected,
     testConnection: unexpected,
+    getProjectDefaultProfile: unexpected,
+    updateProjectDefaultProfile: unexpected,
     ...overrides,
   };
 }

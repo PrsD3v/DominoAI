@@ -9,7 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Project, ProjectPersistence } from "@/types/persistence";
+import type {
+  Project,
+  ProjectPersistence,
+  RuntimeProfilePersistence,
+} from "@/types/persistence";
+import type { RuntimeProfile } from "@/types/runtime-settings";
 import { openSqliteDatabase } from "../workflow/sqlite/migrations";
 import {
   openSqliteWorkflowStore,
@@ -25,8 +30,31 @@ import {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-class FakeProjectStore implements ProjectPersistence {
+const PROFILE_AT = "2026-10-30T00:00:00.000Z";
+
+function profileRecord(id: string): RuntimeProfile {
+  return {
+    id,
+    label: id,
+    adapterId: "reasonix",
+    providerName: "deepseek",
+    model: "deepseek-flash",
+    apiKeyEnv: "DEEPSEEK_API_KEY",
+    credentialRef: {
+      kind: "reasonix-env",
+      providerName: "deepseek",
+      apiKeyEnv: "DEEPSEEK_API_KEY",
+    },
+    createdAt: PROFILE_AT,
+    updatedAt: PROFILE_AT,
+  };
+}
+
+class FakeProjectStore
+  implements ProjectPersistence, RuntimeProfilePersistence
+{
   readonly projects = new Map<string, Project>();
+  readonly profiles = new Map<string, RuntimeProfile>();
 
   async createProject(project: Project): Promise<void> {
     if (this.projects.has(project.id)) {
@@ -48,6 +76,25 @@ class FakeProjectStore implements ProjectPersistence {
   async listProjects(): Promise<readonly Project[]> {
     return [...this.projects.values()].map((project) =>
       structuredClone(project),
+    );
+  }
+
+  async createRuntimeProfile(profile: RuntimeProfile): Promise<void> {
+    this.profiles.set(profile.id, structuredClone(profile));
+  }
+
+  async getRuntimeProfile(id: string): Promise<RuntimeProfile | null> {
+    const profile = this.profiles.get(id);
+    return profile === undefined ? null : structuredClone(profile);
+  }
+
+  async updateRuntimeProfile(profile: RuntimeProfile): Promise<void> {
+    this.profiles.set(profile.id, structuredClone(profile));
+  }
+
+  async listRuntimeProfiles(): Promise<readonly RuntimeProfile[]> {
+    return [...this.profiles.values()].map((profile) =>
+      structuredClone(profile),
     );
   }
 }
@@ -124,6 +171,7 @@ describe("registerProject", () => {
 
   it("stores the configuration and the opaque profile id", async () => {
     const store = new FakeProjectStore();
+    store.profiles.set("profile-opaque-1", profileRecord("profile-opaque-1"));
     const workspaceRoot = await makeWorkspace();
 
     const project = await registerProject(
@@ -138,6 +186,25 @@ describe("registerProject", () => {
       nested: { retries: 2 },
     });
     expect(project.defaultRuntimeProfileId).toBe("profile-opaque-1");
+  });
+
+  it("rejects an unknown default runtime profile id without storing anything", async () => {
+    const store = new FakeProjectStore();
+    const workspaceRoot = await makeWorkspace();
+
+    await expect(
+      registerProject(
+        options(store, workspaceRoot, {
+          defaultRuntimeProfileId: "missing-profile",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectRegistrationError",
+      reason: "unknown-profile-id",
+      profileId: "missing-profile",
+    });
+
+    expect(store.projects.size).toBe(0);
   });
 
   it("stores the canonical target of a symlinked workspace root", async () => {
@@ -364,6 +431,7 @@ describe("registerProject with SQLite persistence", () => {
     const path = await makeStorePath();
     const store = openStore(path);
     await seedDefinitions(store);
+    await store.createRuntimeProfile(profileRecord("profile-1"));
     const workspaceRoot = await makeWorkspace();
 
     const registered = await registerProject(

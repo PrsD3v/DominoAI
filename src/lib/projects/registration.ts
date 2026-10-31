@@ -5,6 +5,7 @@ import type {
   Project,
   ProjectPersistence,
   PublishedDefinitionPersistence,
+  RuntimeProfilePersistence,
 } from "@/types/persistence";
 
 /** Why a project could not be registered. */
@@ -12,6 +13,7 @@ export type ProjectRegistrationErrorReason =
   | "invalid-name"
   | "invalid-configuration"
   | "invalid-profile-id"
+  | "unknown-profile-id"
   | "root-missing"
   | "root-not-directory"
   | "root-inaccessible"
@@ -24,6 +26,7 @@ export type ProjectRegistrationErrorReason =
 export interface ProjectRegistrationErrorDetails {
   readonly workspaceRoot?: string;
   readonly versionId?: string;
+  readonly profileId?: string;
 }
 
 /** Raised when registration input cannot become a stored project. */
@@ -31,6 +34,7 @@ export class ProjectRegistrationError extends Error {
   readonly reason: ProjectRegistrationErrorReason;
   readonly workspaceRoot?: string;
   readonly versionId?: string;
+  readonly profileId?: string;
 
   constructor(
     reason: ProjectRegistrationErrorReason,
@@ -46,6 +50,10 @@ export class ProjectRegistrationError extends Error {
 
     if (details.versionId !== undefined) {
       this.versionId = details.versionId;
+    }
+
+    if (details.profileId !== undefined) {
+      this.profileId = details.profileId;
     }
   }
 }
@@ -64,6 +72,8 @@ function describe(
       return "The project configuration must be a JSON-serializable object";
     case "invalid-profile-id":
       return "The default runtime profile id must be a non-empty string";
+    case "unknown-profile-id":
+      return `Runtime profile "${details.profileId ?? ""}" is not persisted`;
     case "root-missing":
       return `Workspace root "${workspaceRoot}" does not exist`;
     case "root-not-directory":
@@ -94,7 +104,8 @@ export interface ProjectRegistrationInput {
 /** Persistence a registration needs. */
 export interface ProjectRegistrationStore
   extends ProjectPersistence,
-    PublishedDefinitionPersistence {}
+    PublishedDefinitionPersistence,
+    RuntimeProfilePersistence {}
 
 /** Inputs for one registration. */
 export interface RegisterProjectOptions extends ProjectRegistrationInput {
@@ -118,6 +129,7 @@ export async function registerProject(
   const defaultRuntimeProfileId = validateProfileId(
     options.defaultRuntimeProfileId,
   );
+  await verifyProfileReference(store, defaultRuntimeProfileId);
   const workspaceRoot = await resolveWorkspaceRoot(options.workspaceRoot);
   await rejectDuplicateRoot(store, workspaceRoot);
 
@@ -186,6 +198,19 @@ function validateProfileId(
   }
 
   return defaultRuntimeProfileId;
+}
+
+async function verifyProfileReference(
+  store: ProjectRegistrationStore,
+  profileId: string | undefined,
+): Promise<void> {
+  if (profileId === undefined) {
+    return;
+  }
+
+  if ((await store.getRuntimeProfile(profileId)) === null) {
+    throw new ProjectRegistrationError("unknown-profile-id", { profileId });
+  }
 }
 
 async function resolveWorkspaceRoot(workspaceRoot: unknown): Promise<string> {

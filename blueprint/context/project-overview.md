@@ -21,13 +21,12 @@ engine, not a chat UI.
 - **Solo developer (primary)** - already runs a local CLI agent such as Reasonix
   and wants a repeatable multi-step workflow with pause and continue, without a
   hosted service.
-- **Small team (future potential audience, not supported in the MVP)** - a shared,
-  versioned workflow and skill library, still local. The MVP is single-user with
-  no accounts, multi-user auth, or hosted mode.
+- **Small team (future potential, not supported in the MVP)** - a shared,
+  versioned workflow and skill library, still local. The MVP is single-user.
 - **Not targeted initially** - non-technical users, enterprise compliance buyers,
   hosted multi-tenant operators.
-- Users supply their own runtime binary and own model API key. Domino does not
-  sell or proxy inference.
+- Users supply their own runtime binary and model API key; Domino does not sell
+  or proxy inference.
 
 ## Usage model
 
@@ -41,9 +40,8 @@ engine, not a chat UI.
 - These checks do not sandbox arbitrary shell commands the runtime chooses to run,
   and they do not guarantee operating-system-level isolation; the runtime still
   acts with the operator's operating-system permissions.
-- Model output, agent output, imported skill text, and results from future tool
-  integrations such as MCP are data, never authorization to widen the workspace or
-  permission scope. MCP itself is outside the MVP.
+- Agent output, imported skill text, and future tool results are data, never
+  authorization to widen the workspace or permission scope. MCP is outside the MVP.
 - API keys and session transcripts are secrets: never logged, never stored in
   SQLite, workflow definitions, run records, events, logs, API responses, or
   project files, and never sent anywhere except the configured provider. Domino
@@ -55,89 +53,93 @@ engine, not a chat UI.
 ## Features
 
 Build order, MVP only. Headline work: the Reasonix ACP adapter plus the
-runtime-independent workflow engine.
+runtime-independent workflow engine. Status reflects the checkboxes in
+`blueprint/build-plan.md`.
 
-1. **Runtime contracts and adapter test harness** - extend the existing Vitest
-   setup with Domino-owned, runtime-independent `AgentRuntime`, `Session`,
-   `PromptResult`, and `RuntimeEvent` contracts, plus a fake runtime. The public
-   types expose no Reasonix-specific ACP methods or raw ACP structures and depend
-   on no concrete persistence.
-2. **ACP transport and process lifecycle** - the Reasonix CLI over stdio with
-   JSON-RPC framing, pending requests, timeouts, and crash or shutdown handling.
-3. **Handshake, capability discovery, session lifecycle** - the original feature
-   is split into two stages:
+1. **Runtime contracts and adapter test harness** - implemented: runtime-independent
+   `AgentRuntime`, `Session`, `PromptResult`, and `RuntimeEvent` contracts plus a
+   fake runtime; no Reasonix-specific ACP types and no concrete persistence.
+2. **ACP transport and process lifecycle** - implemented: the Reasonix CLI over
+   stdio with JSON-RPC framing, pending requests, timeouts, and crash or shutdown
+   handling.
+3. **Handshake, capability discovery, session lifecycle** - open, split in two:
    - **3A Local handshake and session lifecycle** - implemented and locally
-     tested: `initialize`, capability reporting, fake session create and close,
-     and idempotent close. Live session creation and close are not proven.
-   - **3B Live Reasonix runtime verification - BLOCKED / DEFERRED** - keep open;
-     requires a valid, disposable credential and a writable Reasonix home.
-     Original acceptance remains: live `initialize`, `session/new`, and
-     `session/close`; a prompt only if needed to prove runtime behavior; no
-     production secret and no unverified claim. Keep outside the selectable
-     checklist until both prerequisites exist.
-4. **Prompt execution and event normalization** - streamed updates become
-   normalized runtime events; stop reasons are preserved.
-5. **Cancel and failure safety** - a verified cancelled result, and EOF, crash, or
-   timeout ending pending work instead of hanging it.
-6. **Resume, load, and list** - continuing a Reasonix session and replaying its
-   history stay distinct, each with observable tests establishing its semantics
-   against the installed Reasonix version.
-7. **Optional steering** - split into two stages:
-   - **7A Steering discovery and optional capability** - the advertised method is
-     read from runtime metadata and steering is an optional, capability-gated
-     session operation.
+     tested: `initialize`, capability reporting, and idempotent fake session
+     create and close; live create and close are unproven.
+   - **3B Live Reasonix runtime verification - BLOCKED / DEFERRED** - needs a
+     disposable credential and a writable Reasonix home; live `initialize`,
+     `session/new`, and `session/close` stay unproven.
+4. **Prompt execution and event normalization** - implemented: streamed updates
+   become normalized runtime events; stop reasons are preserved.
+5. **Cancel and failure safety** - implemented: a verified cancelled result, and
+   EOF, crash, or timeout ending pending work instead of hanging it.
+6. **Resume, load, and list** - open, split in two:
+   - **6A Resume, load, and list adapter** - implemented: capability-gated
+     `session/resume`, `session/load`, and `session/list`; `load` replays
+     normalized history while `resume` does not; a live `session/list` passes.
+   - **6B Live Reasonix resume and load verification - BLOCKED / DEFERRED** -
+     same live prerequisites as 3B; no live resume or load claim.
+7. **Optional steering** - open, split in two:
+   - **7A Steering discovery and optional capability** - implemented: the
+     advertised method is read from runtime metadata and steering is an optional,
+     capability-gated session operation; denial and failure paths are typed.
    - **7B Live steering characterization - BLOCKED / DEFERRED** - interrupt
-     versus queue stays unproven until a disposable credential and a writable
-     Reasonix home exist.
-8. **Workflow and skill definition model** - versioned and validated, owned by
-   Domino, importing nothing from an external format yet.
-9. **Workflow engine core** - defines the persistence contracts and runs on an
-   in-memory implementation; pause, continue, and cancel are run operations, each
-   step re-checks workspace containment, and pause lets a running step finish
-   without starting the next one.
-10. **SQLite persistence** - the same contracts behind SQLite, plus startup
-    reconciliation. Automated tests load persisted active runs as if after a
-    restart and assert they become `interrupted` with their history intact.
-11. **Project registration and configuration** - registration-time validation and
-    canonicalization of the workspace root, plus selected definition versions.
-    A project may hold an optional opaque default runtime profile reference,
-    validated by 11A.
-11A. **Reasonix provider, model, and credential settings** - one feature with
-    explicit stage status:
-    - **Stage 1 Contracts** - implemented and committed: non-secret
-      `RuntimeProfile`, `CredentialRef`, and write-only `CredentialStore`.
-    - **Stage 2/2.1 Credential file store** - implemented and committed:
-      atomic, locked, symlink-safe writes to `<Reasonix home>/.env`.
-    - **Stage 3 Provider/model catalog** - implemented and committed: read-only
-      metadata from `reasonix doctor --json`; credential presence only.
-    - **Stage 4 Persistence and migration** - implemented and committed:
-      non-secret profile metadata persists through the existing persistence
-      interface and SQLite layer (commit `aa3e78b`).
-    - **Stage 5 Settings API** - not implemented: server-side catalog, profile,
-      and write-only credential endpoints.
-    - **Stage 6 Settings screen** - not implemented: the initial Settings screen,
-      built from shadcn/ui default components used as-is.
-    - **Stage 7 Test Connection** - not implemented; live proof depends on 3B.
-    - **Stage 8 Project default-profile integration** - not implemented.
-    Feature 11A remains open. Its real connection test depends on 3B and
-    Feature 4.
-12. **Blueprint compatibility assessment** - evidence-based decision before any
-    import or mapping is assumed.
-13. **Skill delivery proof and central library** - instructions reach the agent
-    through a verified ACP path; the target project tree stays unchanged.
-14. **Minimal run dashboard** - start against a registered project, watch events,
-    pause or continue, cancel, answer approvals; built from shadcn/ui defaults and
-    localized through the existing catalog in English and Persian RTL, with light
-    and dark themes and Zod-validated forms where needed. Event transport and
-    reconnect are decided here.
-15. **Server and approval safety controls** - loopback binding, cross-origin
-    mutation rejection, approvals bound to one run and step, and secret redaction.
-16. **End-to-end MVP slice** - a three-step run with an approval pause, page
-    reload while paused, then completion and a second reload. Page reload only;
-    the restart case belongs to feature 10's tests.
+     versus queue stays unproven pending the same prerequisites.
+8. **Workflow and skill definition model** - implemented: versioned and
+   validated, owned by Domino, importing nothing from an external format yet.
+9. **Workflow engine core** - implemented: the persistence contracts and an
+   in-memory implementation; pause, continue, and cancel are run operations; each
+   step re-checks containment; a run binds an opaque `runtimeProfileId`, never a
+   provider, model, or credential.
+10. **SQLite persistence** - implemented: the same contracts behind SQLite, plus
+    startup reconciliation. Automated tests load persisted active runs as if
+    after a restart and assert they become `interrupted` with their history
+    intact.
+11. **Project registration and configuration** - implemented: registration-time
+    validation and canonicalization of the workspace root, plus selected
+    definition versions. A project may hold an optional opaque default runtime
+    profile reference, validated by 11A.
+11A. **Reasonix provider, model, and credential settings** - open; each stage is
+    a reviewable implementation unit:
+    - **Stage 1 Contracts** - implemented: non-secret `RuntimeProfile`,
+      `CredentialRef`, and write-only `CredentialStore`.
+    - **Stage 2/2.1 Credential file store** - implemented: atomic, locked,
+      symlink-safe writes to `<Reasonix home>/.env`.
+    - **Stage 3 Provider/model catalog** - implemented: read-only metadata from
+      `reasonix doctor --json`; credential presence only, no connection claim.
+    - **Stage 4 Persistence and migration** - implemented: non-secret profile
+      metadata through the persistence interface and SQLite layer.
+    - **Stage 5 Settings API** - implemented: catalog, profile
+      create/list/update, and write-only credential set/remove/status endpoints;
+      typed, non-secret errors.
+    - **Stage 6 Settings screen** - implemented: the initial Settings screen on
+      the Stage 5 API, shadcn/ui defaults, English and Persian RTL, light and
+      dark themes.
+    - **Stage 7 Test Connection** - implemented with a fake runtime and a typed
+      result; the real connection test still depends on 3B and is not claimed.
+    - **Stage 8 Project default-profile integration** - not implemented: set,
+      clear, and validate a project's optional default profile id against
+      persisted profiles.
+    - Feature 11A is not complete while Stage 8 remains open.
+12. **Blueprint compatibility assessment** - not implemented: an evidence-based
+    decision before any import or mapping is assumed.
+13. **Skill delivery proof and central library** - not implemented: instructions
+    reach the agent through a verified ACP path, and the target project tree is
+    unchanged by any permanent Skill install.
+14. **Minimal run dashboard** - not implemented: start against a registered
+    project, watch events, pause or continue, cancel, answer approvals; shadcn/ui
+    defaults, English and Persian RTL, light and dark themes, Zod-validated forms
+    where needed. Folds in the 11A Settings screen without a second credential
+    store.
+15. **Server and approval safety controls** - not implemented: loopback binding,
+    cross-origin mutation rejection, approvals bound to one run and step, and
+    secret redaction in logs, event views, API responses, and the settings flow.
+16. **End-to-end MVP slice** - not implemented: a three-step run with an approval
+    pause against the real runtime, page reload while paused, then completion and
+    a second reload. Page reload only; the restart case belongs to feature 10.
 
-Every claimed ACP capability needs repeatable test evidence from the installed
-Reasonix version, and `resume` and `load` stay distinct operations.
+Every ACP capability claim needs repeatable test evidence from the installed
+Reasonix version; `resume` and `load` stay distinct.
 
 ### Deferred, explicitly not MVP
 
@@ -150,9 +152,7 @@ restart, export or Git sync of definitions, PostgreSQL, packaging.
 ## Data model
 
 Derived from project-plan.md section 4. Field names and the status vocabulary are
-proposed here; the SQLite driver, migration approach, schema, and event retention
-policy are decided in feature 10. The engine talks only to the persistence
-interface, never to SQLite.
+proposed here. The engine talks only to the persistence interface, never SQLite.
 
 ### Project
 
@@ -174,8 +174,8 @@ interface, never to SQLite.
 - `CredentialRef`: `kind` (`reasonix-env`), `providerName`, `apiKeyEnv`; it
   points to a runtime-owned credential and never contains a key value
 - Stage 4 of 11A persists this non-secret profile metadata through the
-  persistence interface and SQLite layer (commit `aa3e78b`). No credential value
-  belongs in this model.
+  persistence interface and SQLite layer. No credential value belongs in this
+  model.
 
 ### WorkflowDefinition and WorkflowVersion
 
@@ -231,9 +231,8 @@ interface, never to SQLite.
 - `type` (normalized event type), `payload` (JSON), `createdAt`
 - retention policy is decided in feature 10
 
-> Lock the identifiers and the pinning rules now: run ids, session ids, and
-> version ids must not be conflated, and a run must keep the versions it started
-> with.
+> Lock these rules now: run ids, session ids, and version ids never conflate, and
+> a run keeps the versions it started with.
 
 ## Tech stack
 
@@ -242,10 +241,10 @@ interface, never to SQLite.
 - **Tailwind CSS v4** - CSS-first theme with light and dark tokens, no config file
 - **shadcn/ui** - component library; default components are used as-is and never
   edited under `components/ui/`
-- **Zod** - schema validation when a form needs it; React Hook Form is optional
-  and added only when form complexity justifies it
+- **Zod** - schema validation when a form needs it; React Hook Form only when
+  complexity justifies it
 - **Localization** - typed English and Persian catalogs, English default, Persian
-  RTL, cookie-backed switcher
+  RTL, cookie switcher
 - **Node.js 24, npm** - runtime and package manager
 - **Reasonix CLI v2.54.0 over ACP** - the first agent runtime, reached over stdio
 - **Model provider** - provider-agnostic; `deepseek/deepseek-flash` in development
@@ -267,7 +266,8 @@ their own runtime and API key, so inference and compute costs are theirs.
 Constraints that follow: no feature may require a Domino-hosted account, server,
 or network call, and no user code, prompt content, API key, or transcript may
 leave the machine through Domino. Optional sustainability ideas (sponsorships,
-paid support, an optional commercial hosted offering) are additive and uncommitted.
+paid support, an optional commercial hosted offering) are additive and
+uncommitted.
 
 ## UI/UX
 
@@ -304,14 +304,11 @@ because the audience is developers.
 
 ### Components and forms
 
-- shadcn/ui default components are used as-is; existing components are reused
-  before adding a new one. Nothing under `components/ui/` is edited, forked, or
-  replaced. Missing components are added with the CLI.
-- Custom layout comes from page-level composition, wrapper components, Tailwind
-  utilities, and CSS variables.
-- Simple forms use native React handling; Zod defines the schema when
-  schema-based validation is needed; React Hook Form is added only when form
-  complexity justifies it.
+- shadcn/ui defaults are used as-is and reused before adding a new one; nothing
+  under `components/ui/` is edited or forked. Missing components arrive via the
+  CLI. Custom layout uses page composition, wrappers, Tailwind, and CSS variables.
+- Simple forms use native React handling; Zod when schema validation is needed;
+  React Hook Form only when complexity justifies it.
 
 ### Theme and references
 
@@ -319,12 +316,6 @@ because the audience is developers.
   through `prefers-color-scheme`.
 - UI reference images may arrive later. Store them in `blueprint/reference/` and
   build from the image rather than from prose.
-
-### Already in place
-
-Bilingual app shell with English default and Persian RTL, cookie-backed language
-switcher, per-language fonts (Vazirmatn and Geist), localized loading, error, and
-404 states, and a working Vitest setup.
 
 ## Control operations
 
@@ -337,22 +328,21 @@ the UI.
 | Workflow cancel | Workflow Engine | End the run as cancelled, preserving the step state reached. |
 | Reasonix session resume | Runtime adapter | Reattach to a runtime session, with or without history replay. |
 
-Pause and continue work only while the Domino process stays alive. Stronger
+Pause and continue work only while the Domino process stays alive; stronger
 interruption needs a separately verified runtime capability and is outside the
-MVP. On startup, runs that were active when the process stopped are marked
-`interrupted`; their state and history are preserved and nothing implies
-automatic continuation.
+MVP. On startup, runs active when the process stopped are marked `interrupted`,
+with state and history preserved and no implied continuation.
 
 ## Deployment
 
 - **Target** - the developer's own machine, next to the project it operates on
-- **App type** - Node server (Next.js server runtime); static export is
-  incompatible with running the ACP adapter or streaming events
+- **App type** - Node server (Next.js server runtime); static export cannot run
+  the ACP adapter or stream events
 - **Build / start** - `npm run build`, `npm run start`
 - **Env vars, by name** - runtime binary path, workspace allowlist, storage path,
-  provider variable names. Values are never committed
-- **Storage** - one local SQLite file owned by the app; no database server
-- **Workers** - the adapter child process; no separate worker for the MVP
+  provider variable names; values are never committed
+- **Storage** - one local SQLite file; no database server
+- **Workers** - the adapter child process; no separate worker
 - **Health path** - > TODO, decided with the event transport
 - **Domain** - none; localhost, loopback only by default
 - **Packaging** - > TODO (npm package, npx, or clone and run)
@@ -361,16 +351,13 @@ automatic continuation.
 
 Candidates, not commitments; they are not scheduled to follow the MVP directly.
 
-- Domino owns workflow orchestration, step state, approvals, permissions, and
-  history; the runtime executes agent tasks.
-- Future browser interaction and image or screenshot analysis may come through
-  runtime-native tools or a separately integrated tool provider. Viability is
-  unknown until verified.
-- A Reasonix CLI capability is not assumed to work through ACP until verified
-  through the exact path Domino uses.
-- No browser-specific abstraction, Playwright dependency, MCP dependency, or
-  image-analysis contract is added before a concrete post-MVP requirement
-  justifies it.
+- Domino owns orchestration, step state, approvals, permissions, and history; the
+  runtime executes agent tasks.
+- Future browser interaction and image analysis may come through runtime-native
+  tools or a separate tool provider; viability is unknown until verified.
+- A Reasonix capability is not assumed to work through ACP until verified through
+  the exact path Domino uses, and no browser, MCP, or image-analysis dependency is
+  added before a concrete post-MVP requirement justifies it.
 - Future tool integrations must not expand workspace access or permissions based
   on agent output or tool results.
 
@@ -379,17 +366,21 @@ outside the MVP.
 
 ## Open decisions
 
-Each is assigned to the feature that settles it. None blocks feature 1.
+Each is assigned to the feature that settles it.
 
-1. SQLite driver, migration approach, and schema details - feature 10
-2. Event retention policy for runtime events - feature 10
-3. How skill content reaches the runtime without a permanent project install -
+1. How skill content reaches the runtime without a permanent project install -
    feature 13
-4. Dashboard event transport and reconnect behavior, SSE suggested - feature 14
-5. Whether Blueprint definitions are consumed as-is or mapped - feature 12
-6. Packaging and install path - post-MVP, with release automation
-7. Whether the theme follows the OS only or exposes an explicit light/dark toggle
+2. Dashboard event transport and reconnect behavior, SSE suggested - feature 14
+3. Whether Blueprint definitions are consumed as-is or mapped - feature 12
+4. Packaging and install path - post-MVP, with release automation
+5. Whether the theme follows the OS only or exposes an explicit light/dark toggle
    - feature 14
-8. Credential file path, permissions, and atomic replacement on Windows and macOS
+6. Credential file path, permissions, and atomic replacement on Windows and macOS
    - feature 11A
-9. Connection test cost, timeout, and error categories - feature 11A
+7. Connection test cost, timeout, and error categories - feature 11A
+
+## Open questions
+
+- `project-plan.md` section 3 "Delivery status" is stale: it calls 11A Stage 4
+  blocked and the API, Settings UI, and connection test open, while the build plan
+  records Stages 4 to 7 implemented. Fix the plan, then re-run `/overview`.
