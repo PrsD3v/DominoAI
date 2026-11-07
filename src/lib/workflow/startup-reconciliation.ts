@@ -35,6 +35,28 @@ export async function reconcileInterruptedRuns(
     }
 
     const timestamp = options.now();
+    const approvals = await options.persistence.listApprovals(run.id);
+
+    for (const approval of approvals) {
+      if (approval.status !== "pending") {
+        continue;
+      }
+
+      await options.persistence.updateApproval({
+        ...approval,
+        status: "cancelled",
+        resolvedAt: timestamp,
+      });
+      await options.persistence.appendHistory({
+        id: `${run.id}:approval-cancelled:${approval.id}`,
+        runId: run.id,
+        stepRunId: approval.stepRunId,
+        kind: "approval_cancelled",
+        message: `Approval "${approval.message}" cancelled`,
+        createdAt: timestamp,
+      });
+    }
+
     const updated: WorkflowRun = {
       ...run,
       status: "interrupted",

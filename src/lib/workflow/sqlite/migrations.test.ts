@@ -96,6 +96,10 @@ describe("openSqliteDatabase", () => {
       .prepare("INSERT INTO workflow_definitions (id, name) VALUES (?, ?)")
       .run("definition-1", "Release");
     created.db.exec("DROP TABLE runtime_profiles");
+    created.db.exec("ALTER TABLE workflow_runs DROP COLUMN project_id");
+    created.db.exec(
+      "ALTER TABLE workflow_runs DROP COLUMN workflow_version_id",
+    );
     created.db.exec("PRAGMA user_version = 1");
     created.close();
 
@@ -116,6 +120,68 @@ describe("openSqliteDatabase", () => {
         .prepare("SELECT id FROM workflow_definitions")
         .all();
       expect(definitions).toEqual([{ id: "definition-1" }]);
+    } finally {
+      upgraded.close();
+    }
+  });
+
+  it("upgrades a version 2 database and preserves existing runs", async () => {
+    const path = await makeDatabasePath();
+    const created = openSqliteDatabase({ path });
+
+    created.db
+      .prepare(
+        `INSERT INTO workflow_runs (
+          id, workflow_id, workflow_version, plan_json, runtime_profile_id,
+          workspace_root, status, created_at, updated_at, started_at,
+          finished_at, pause_requested, cancel_requested, error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "run-1",
+        "workflow-1",
+        1,
+        JSON.stringify({
+          workflowId: "workflow-1",
+          workflowVersion: 1,
+          steps: [{ key: "step-1", prompt: "Do the work" }],
+        }),
+        "profile-opaque",
+        "/workspace",
+        "completed",
+        "2026-10-30T00:00:00.000Z",
+        "2026-10-30T00:00:00.000Z",
+        "2026-10-30T00:00:00.000Z",
+        "2026-10-30T00:00:01.000Z",
+        0,
+        0,
+        null,
+      );
+    created.db.exec("ALTER TABLE workflow_runs DROP COLUMN project_id");
+    created.db.exec(
+      "ALTER TABLE workflow_runs DROP COLUMN workflow_version_id",
+    );
+    created.db.exec("PRAGMA user_version = 2");
+    created.close();
+
+    const upgraded = openSqliteDatabase({ path });
+
+    try {
+      const version = upgraded.db.prepare("PRAGMA user_version").get();
+      expect(Number(version?.user_version)).toBe(SCHEMA_VERSION);
+
+      const columns = upgraded.db
+        .prepare("PRAGMA table_info(workflow_runs)")
+        .all()
+        .map((row) => String(row.name));
+      expect(columns).toContain("project_id");
+      expect(columns).toContain("workflow_version_id");
+
+      const row = upgraded.db
+        .prepare("SELECT * FROM workflow_runs WHERE id = ?")
+        .get("run-1");
+      expect(row?.project_id).toBeNull();
+      expect(row?.workflow_version_id).toBeNull();
     } finally {
       upgraded.close();
     }

@@ -7,7 +7,7 @@ import {
   WorkflowPersistenceError,
   WorkflowRecordError,
 } from "../persistence-errors";
-import { openSqliteDatabase } from "./migrations";
+import { openSqliteDatabase, SCHEMA_VERSION } from "./migrations";
 import {
   openSqliteWorkflowStore,
   type SqliteWorkflowStore,
@@ -239,7 +239,7 @@ describe("SQLite runtime profile persistence", () => {
 
     try {
       const version = database.db.prepare("PRAGMA user_version").get();
-      expect(Number(version?.user_version)).toBe(2);
+      expect(Number(version?.user_version)).toBe(SCHEMA_VERSION);
     } finally {
       database.close();
     }

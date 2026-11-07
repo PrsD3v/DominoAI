@@ -54,6 +54,11 @@ but the engine still `await`s every one of them, and an `await` of an
 already-settled promise yields to the microtask queue. The read-then-write pair
 in `pauseRun`, `cancelRun`, and `continueRun` therefore spans an ordinary await
 boundary with the new store, exactly as predicted. Status unchanged.
+Re-examined on 2026-11-08 during the feature 14A independent review: the new
+`requestApproval` (`engine.ts:520`) creates the approval, sets
+`active.pendingApproval`, then re-reads the run and writes it as
+`waiting_approval`, so a concurrent cancel can be overwritten by that stale
+snapshot. The approval answer path has the same shape; see F-39.
 
 ### F-03 [P2] open - A rejected background run task wedges the engine and rejects unhandled
 
@@ -472,6 +477,10 @@ screen modules extend the same drift and belong in the same cleanup pass,
 `@/`. The Stage 6 feature components (settings-screen, profile-form,
 credential-panel, the settings page) do use the alias, so this is the same
 pre-existing gap, not a new pattern.
+Re-examined on 2026-11-08 during the feature 14A independent review: the new
+`src/lib/runs/*` modules and the Projects, Runs, Workflows, and Skills route
+handlers use relative imports as well, so the drift now spans a fourth feature.
+See F-41. Status unchanged.
 
 ### F-23 [P3] open - Two spec-stated request shapes have no test
 
@@ -754,4 +763,82 @@ teardown branch hard to read.
 **Suggested fix:** Split it into a start-and-prompt step that returns the typed
 result plus its live handles, and a teardown step that takes those handles and
 the timeout flag. No spec requirement is lost: the runner contract is unchanged.
+**Resolution:** Open.
+
+### F-38 [P2] open - Run control responses are built before the request is recorded
+
+**File:** src/lib/runs/service.ts:649
+**Found:** 2026-11-08 by /audit independent (scope: current; lens: quality, tests)
+**Why it matters:** `pauseRun` (`service.ts:649`) and `continueRun` (`:660`) fire
+`deps.engine.pauseRun`/`continueRun` without awaiting any part of the operation
+and immediately call `getRun` (`:657`, `:668`). The engine does not persist
+`pauseRequested: true` or the resumed `status: "running"` until after its own
+first `await persistence.getRun`, so the service's read resolves from the
+pre-request snapshot: a pause response reports `pauseRequested: false` and a
+continue response reports `status: "paused"`. `cancelRun` (`:671`) does the same
+on the running path, so `cancelRequested` is likewise missing. The spec says
+these calls return the refreshed detail and that pause or cancel during a step
+may return with the request flags true; the stream eventually corrects the state,
+but the immediate HTTP body cannot carry the request it just accepted. Engine
+errors are also swallowed with `.catch(() => {})` after the status check, so a
+state change in that window still returns 200 with an unchanged run.
+**Suggested fix:** Have the engine expose a promise that resolves once the
+request has been persisted (separate from the pause or cancel waiter) and await
+that in the service before reading the detail. Only swallow the typed state
+error after it has been observed.
+**Resolution:** Open.
+
+### F-39 [P2] open - Concurrent approval decisions can duplicate history and resurrect a cancelled run
+
+**File:** src/lib/workflow/engine.ts:346
+**Found:** 2026-11-08 by /audit independent (scope: current; lens: quality, security)
+**Why it matters:** `answerApproval` validates the run status, the stored
+approval, and `active.pendingApproval` across separate awaits before writing
+anything. Two concurrent decisions for the same approval both pass those checks,
+both write `approved`, and both append `approval_approved`. The later call then
+reads `active.pendingApproval` after the first cleared it (`engine.ts:395-398`)
+and dereferences null instead of failing with `already_resolved` or
+`run_not_waiting`, so the duplicate answer becomes a 500 while the history has
+already grown. An answer racing `cancelRun` can also write the stale
+`waiting_approval` snapshot back as `running` after `cancel()` persisted
+`cancelled` and cleared `this.active` (`engine.ts:904-933`), leaving a cancelled
+run recorded as running with no executor. This is the F-02 stale-snapshot pattern
+in the new approval path and contradicts the spec rule that a second decision, or
+a decision after cancellation, fails without changing records.
+**Suggested fix:** Claim the decision through `active` before the first await so
+only one caller can leave `pending`, re-read the run and approval immediately
+before each write, and skip the write when either status changed. A
+compare-and-set style precondition on the approval update is enough; no lock or
+queue is needed.
+**Resolution:** Open.
+
+### F-40 [P2] open - Service control paths have no happy-path tests
+
+**File:** src/lib/runs/service.test.ts:514
+**Found:** 2026-11-08 by /audit independent (scope: current; lens: tests)
+**Why it matters:** Spec step 4's done-when requires service tests for
+pause, continue, and cancel. The "run service controls" block only proves that
+pause and continue are refused while waiting (`:515`) and that cancel works while
+waiting (`:538`). No test pauses or continues a running step, so the
+fire-and-forget ordering behind F-38 is unobserved and the returned detail is
+never checked against the request that was just accepted.
+**Suggested fix:** Add one service case with a fake runtime whose prompt stays
+pending: pause, assert the returned detail carries `pauseRequested`, release the
+prompt, assert the run is paused, continue and assert the returned detail, then
+cancel a running step and assert `cancelRequested` and the eventual cancelled
+state.
+**Resolution:** Open.
+
+### F-41 [P3] open - The new run modules and API routes bypass the `@/` import alias
+
+**File:** src/lib/runs/service.ts:1
+**Found:** 2026-11-08 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `coding-standards.md` requires imports through `@/*`. The
+new feature uses relative paths throughout: `service.ts:1-43`, `runtime.ts:1-19`,
+`stream.ts:1-2`, `http.ts:1-2`, every `src/app/api/{projects,runs,skills,workflows}`
+route, and their tests. This extends the drift tracked by F-08, F-10, and F-22
+into a fourth feature and makes the cleanup larger.
+**Suggested fix:** Convert the new sites to `@/lib/runs/...`, `@/types/...`, and
+`@/lib/workflow/...` in the same cleanup pass that fixes the earlier findings. No
+behavior changes.
 **Resolution:** Open.

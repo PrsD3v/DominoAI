@@ -1,6 +1,6 @@
 # DominoAI - Project Overview
 
-<!-- blueprint:source-hash b28458cea8bb988fc4850ace2884631f7ca4dea736659687c81b2b2b0fae7c99 -->
+<!-- blueprint:source-hash 0de3e3abbb7d6dff4fcc55786cc193a44ffeed9f84d12e0392d484e5cc0f411b -->
 
 > A local-first workflow control layer for AI coding agents, open source under MIT.
 

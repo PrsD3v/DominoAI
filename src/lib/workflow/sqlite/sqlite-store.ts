@@ -85,6 +85,10 @@ const HISTORY_KINDS = new Set<WorkflowHistoryKind>([
   "step_cancelled",
   "session_close_failed",
   "containment_refused",
+  "approval_requested",
+  "approval_approved",
+  "approval_rejected",
+  "approval_cancelled",
 ]);
 
 function decodeFailure(
@@ -339,6 +343,8 @@ function runParameters(run: WorkflowRun): Parameter[] {
     run.pauseRequested ? 1 : 0,
     run.cancelRequested ? 1 : 0,
     run.error ?? null,
+    run.projectId ?? null,
+    run.workflowVersionId ?? null,
   ];
 }
 
@@ -361,11 +367,19 @@ function decodeRun(row: Row): WorkflowRun {
   const startedAt = readOptionalString(row, "workflow_runs", "started_at");
   const finishedAt = readOptionalString(row, "workflow_runs", "finished_at");
   const error = readOptionalString(row, "workflow_runs", "error");
+  const projectId = readOptionalString(row, "workflow_runs", "project_id");
+  const workflowVersionId = readOptionalString(
+    row,
+    "workflow_runs",
+    "workflow_version_id",
+  );
 
   return {
     id,
+    ...(projectId === undefined ? {} : { projectId }),
     workflowId: readString(row, "workflow_runs", "workflow_id"),
     workflowVersion: readInteger(row, "workflow_runs", "workflow_version"),
+    ...(workflowVersionId === undefined ? {} : { workflowVersionId }),
     plan: decodePlan(readJson(row, "workflow_runs", "plan_json"), id),
     runtimeProfileId: readString(row, "workflow_runs", "runtime_profile_id"),
     workspaceRoot: readString(row, "workflow_runs", "workspace_root"),
@@ -599,8 +613,8 @@ class SqliteWorkflowStoreImpl implements SqliteWorkflowStore {
       `INSERT INTO workflow_runs (
         id, workflow_id, workflow_version, plan_json, runtime_profile_id,
         workspace_root, status, created_at, updated_at, started_at, finished_at,
-        pause_requested, cancel_requested, error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        pause_requested, cancel_requested, error, project_id, workflow_version_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       runParameters(run),
       "workflow run",
       run.id,
@@ -622,7 +636,8 @@ class SqliteWorkflowStoreImpl implements SqliteWorkflowStore {
           workflow_id = ?, workflow_version = ?, plan_json = ?,
           runtime_profile_id = ?, workspace_root = ?, status = ?,
           created_at = ?, updated_at = ?, started_at = ?, finished_at = ?,
-          pause_requested = ?, cancel_requested = ?, error = ?
+          pause_requested = ?, cancel_requested = ?, error = ?,
+          project_id = ?, workflow_version_id = ?
         WHERE id = ?`,
       )
       .run(...runParameters(run).slice(1), run.id);

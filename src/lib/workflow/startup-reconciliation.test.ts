@@ -218,6 +218,52 @@ for (const [name, createStore] of IMPLEMENTATIONS) {
       expect((await persistence.getRun("run-1"))?.status).toBe("interrupted");
     });
 
+    it("cancels pending approvals and leaves resolved approvals untouched", async () => {
+      const persistence = await createStore();
+
+      await persistence.createRun(
+        baseRun({ id: "run-1", status: "waiting_approval" }),
+      );
+      await persistence.createStepRun(baseStep("step-1", "run-1", "pending"));
+      await persistence.createStepRun(baseStep("step-2", "run-1", "pending"));
+      await persistence.createApproval({
+        id: "approval-pending",
+        runId: "run-1",
+        stepRunId: "step-1",
+        status: "pending",
+        message: "Approve the release?",
+        requestedAt: "2026-10-30T00:00:00.000Z",
+      });
+      await persistence.createApproval({
+        id: "approval-approved",
+        runId: "run-1",
+        stepRunId: "step-2",
+        status: "approved",
+        message: "Approve the deploy?",
+        requestedAt: "2026-10-30T00:00:00.000Z",
+        resolvedAt: "2026-10-30T00:01:00.000Z",
+      });
+
+      await reconcileInterruptedRuns({ persistence, now: () => CLOCK });
+
+      expect(await persistence.getApproval("approval-pending")).toMatchObject({
+        status: "cancelled",
+        resolvedAt: CLOCK,
+      });
+      expect(await persistence.getApproval("approval-approved")).toMatchObject({
+        status: "approved",
+        resolvedAt: "2026-10-30T00:01:00.000Z",
+      });
+
+      const history = await persistence.listHistory("run-1");
+      expect(history.map((entry) => entry.kind)).toEqual([
+        "approval_cancelled",
+        "run_interrupted",
+      ]);
+      expect(history[0]?.stepRunId).toBe("step-1");
+      expect(history[1]?.stepRunId).toBeUndefined();
+    });
+
     it("takes each finish time from the injected clock", async () => {
       const persistence = await createStore();
       let tick = 0;

@@ -193,6 +193,63 @@ describe("openSqliteWorkflowStore", () => {
     expect(await store.getRun("run-1")).toEqual(run);
   });
 
+  it("round-trips project and workflow version ids", async () => {
+    const store = openStore();
+    const run = baseRun({
+      projectId: "project-1",
+      workflowVersionId: "workflow-version-1",
+    });
+
+    await store.createRun(run);
+
+    expect(await store.getRun("run-1")).toEqual(run);
+  });
+
+  it("rejects an unreadable stored project id", async () => {
+    const path = await makePath();
+    const store = openStore(path);
+
+    await store.createRun(baseRun());
+
+    const raw = openSqliteDatabase({ path });
+    raw.db
+      .prepare("UPDATE workflow_runs SET project_id = x'05' WHERE id = ?")
+      .run("run-1");
+    raw.close();
+
+    await expect(store.getRun("run-1")).rejects.toMatchObject({
+      name: "WorkflowPersistenceError",
+      code: "decode",
+    });
+  });
+
+  it("round-trips approval history kinds", async () => {
+    const store = openStore();
+
+    await seed(store);
+
+    const kinds = [
+      "approval_requested",
+      "approval_approved",
+      "approval_rejected",
+      "approval_cancelled",
+    ] as const;
+
+    for (const [index, kind] of kinds.entries()) {
+      await store.appendHistory(
+        baseHistory({
+          id: `history-${index}`,
+          kind,
+          message: `${kind} message`,
+        }),
+      );
+    }
+
+    expect((await store.listHistory("run-1")).map((entry) => entry.kind)).toEqual(
+      [...kinds],
+    );
+  });
+
   it("round-trips plan skill version ids and rejects malformed values", async () => {
     const store = openStore();
     const planWithSkills: WorkflowExecutionPlan = {

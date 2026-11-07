@@ -13,10 +13,16 @@ import type {
   CreateSessionRequest,
   Session,
 } from "../../types/runtime";
-import type { WorkflowExecutionPlan } from "../../types/workflow";
+import type {
+  WorkflowExecutionPersistence,
+  WorkflowExecutionPlan,
+} from "../../types/workflow";
 import { createFakeRuntime, type FakeTurn } from "../runtime/fake-runtime";
 import { WorkspaceContainmentError } from "./containment";
-import { createWorkflowEngine, WorkflowRunStateError } from "./engine";
+import {
+  createWorkflowEngine,
+  WorkflowRunStateError,
+} from "./engine";
 import { InvalidExecutionPlanError } from "./execution-plan";
 import { createInMemoryWorkflowPersistence } from "./in-memory-persistence";
 
@@ -894,6 +900,266 @@ describe("workflow engine end-to-end", () => {
     expect(testRuntime.counters.resume).toBe(0);
     expect(testRuntime.counters.load).toBe(0);
     expect(testRuntime.counters.runtimeClose).toBe(0);
+  });
+});
+
+describe("workflow engine approvals", () => {
+  it("refuses to start without a runtime and writes nothing", async () => {
+    const persistence = createInMemoryWorkflowPersistence();
+    const engine = createWorkflowEngine({
+      persistence,
+      idFactory: () => "id-1",
+      now: () => "2026-10-30T00:00:00.000Z",
+    });
+
+    await expect(
+      engine.startRun(workflowPlan([{ key: "one", prompt: "Do one" }]), {
+        workspaceRoot,
+        runtimeProfileId: "profile-opaque",
+      }),
+    ).rejects.toThrow("A workflow run requires a runtime");
+
+    expect(await persistence.listRuns()).toEqual([]);
+  });
+
+  async function waitForPendingApproval(
+    persistence: WorkflowExecutionPersistence,
+    runId: string,
+    excludeId?: string,
+  ) {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const pending = (await persistence.listApprovals(runId)).find(
+        (approval) =>
+          approval.status === "pending" && approval.id !== excludeId,
+      );
+
+      if (pending !== undefined) {
+        return pending;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    throw new Error("approval did not become pending");
+  }
+
+  it("waits for approval before creating a session", async () => {
+    const testRuntime = createTestRuntime([{ deltas: ["done"] }]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+    const plan = workflowPlan([
+      {
+        key: "gated",
+        prompt: "Ship the release",
+        approval: { key: "release", message: "Approve the release?" },
+      },
+    ]);
+
+    const { runId, completion } = await engine.startRun(plan, runOptions());
+    const approval = await waitForPendingApproval(persistence, runId);
+
+    expect(approval.message).toBe("Approve the release?");
+    expect(testRuntime.createSessionRequests).toHaveLength(0);
+    expect((await persistence.getRun(runId))?.status).toBe(
+      "waiting_approval",
+    );
+    expect((await persistence.listStepRuns(runId))[0]?.status).toBe("pending");
+
+    await engine.answerApproval(runId, approval.id, "approve");
+    const run = await completion;
+
+    expect(run.status).toBe("completed");
+    expect(testRuntime.createSessionRequests).toHaveLength(1);
+    expect((await persistence.getApproval(approval.id))?.status).toBe(
+      "approved",
+    );
+    expect(await persistence.listApprovals(runId)).toHaveLength(1);
+    expect(
+      (await persistence.listHistory(runId)).map((entry) => entry.kind),
+    ).toEqual([
+      "run_started",
+      "approval_requested",
+      "approval_approved",
+      "step_started",
+      "step_completed",
+      "run_completed",
+    ]);
+  });
+
+  it("rejects an approval by cancelling the run and leaving the step pending", async () => {
+    const testRuntime = createTestRuntime([{ deltas: ["done"] }]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+    const plan = workflowPlan([
+      {
+        key: "gated",
+        prompt: "Ship the release",
+        approval: { key: "release", message: "Approve the release?" },
+      },
+    ]);
+
+    const { runId, completion } = await engine.startRun(plan, runOptions());
+    const approval = await waitForPendingApproval(persistence, runId);
+
+    await engine.answerApproval(runId, approval.id, "reject");
+    const run = await completion;
+
+    expect(run.status).toBe("cancelled");
+    expect(testRuntime.createSessionRequests).toHaveLength(0);
+    expect((await persistence.listStepRuns(runId))[0]?.status).toBe("pending");
+    expect((await persistence.getApproval(approval.id))?.status).toBe(
+      "rejected",
+    );
+    expect(
+      (await persistence.listHistory(runId)).map((entry) => entry.kind),
+    ).toEqual([
+      "run_started",
+      "approval_requested",
+      "approval_rejected",
+      "run_cancelled",
+    ]);
+  });
+
+  it("cancels a pending approval when the run is cancelled", async () => {
+    const testRuntime = createTestRuntime([{ deltas: ["done"] }]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+    const plan = workflowPlan([
+      {
+        key: "gated",
+        prompt: "Ship the release",
+        approval: { key: "release", message: "Approve the release?" },
+      },
+    ]);
+
+    const { runId, completion } = await engine.startRun(plan, runOptions());
+    const approval = await waitForPendingApproval(persistence, runId);
+
+    await engine.cancelRun(runId);
+    const run = await completion;
+
+    expect(run.status).toBe("cancelled");
+    expect(testRuntime.createSessionRequests).toHaveLength(0);
+    expect((await persistence.getApproval(approval.id))?.status).toBe(
+      "cancelled",
+    );
+    expect(
+      (await persistence.listHistory(runId)).map((entry) => entry.kind),
+    ).toEqual([
+      "run_started",
+      "approval_requested",
+      "approval_cancelled",
+      "run_cancelled",
+    ]);
+  });
+
+  it("refuses pause and continue while waiting for approval", async () => {
+    const testRuntime = createTestRuntime([{ deltas: ["done"] }]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+    const plan = workflowPlan([
+      {
+        key: "gated",
+        prompt: "Ship the release",
+        approval: { key: "release", message: "Approve the release?" },
+      },
+    ]);
+
+    const { runId, completion } = await engine.startRun(plan, runOptions());
+    const approval = await waitForPendingApproval(persistence, runId);
+
+    await expect(engine.pauseRun(runId)).rejects.toMatchObject({
+      name: "WorkflowRunStateError",
+      operation: "pause",
+      status: "waiting_approval",
+    });
+    await expect(engine.continueRun(runId)).rejects.toMatchObject({
+      name: "WorkflowRunStateError",
+      operation: "continue",
+      status: "waiting_approval",
+    });
+
+    await engine.answerApproval(runId, approval.id, "approve");
+    await completion;
+  });
+
+  it("answers an approval only once and only for its run", async () => {
+    const testRuntime = createTestRuntime([
+      { deltas: ["one"] },
+      { deltas: ["two"] },
+    ]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+    const plan = workflowPlan([
+      {
+        key: "one",
+        prompt: "Do one",
+        approval: { key: "gate-one", message: "Approve one?" },
+      },
+      {
+        key: "two",
+        prompt: "Do two",
+        approval: { key: "gate-two", message: "Approve two?" },
+      },
+    ]);
+
+    const { runId, completion } = await engine.startRun(plan, runOptions());
+    const first = await waitForPendingApproval(persistence, runId);
+
+    await engine.answerApproval(runId, first.id, "approve");
+    const second = await waitForPendingApproval(persistence, runId, first.id);
+
+    await expect(
+      engine.answerApproval(runId, first.id, "approve"),
+    ).rejects.toMatchObject({
+      name: "WorkflowApprovalError",
+      reason: "already_resolved",
+    });
+
+    await expect(
+      engine.answerApproval(runId, "missing-approval", "approve"),
+    ).rejects.toMatchObject({
+      name: "WorkflowApprovalError",
+      reason: "not_found",
+    });
+
+    await persistence.createApproval({
+      id: "other-approval",
+      runId: "other-run",
+      stepRunId: "other-step",
+      status: "pending",
+      message: "Other approval",
+      requestedAt: "2026-10-30T00:00:00.000Z",
+    });
+
+    await expect(
+      engine.answerApproval(runId, "other-approval", "approve"),
+    ).rejects.toMatchObject({
+      name: "WorkflowApprovalError",
+      reason: "not_found",
+    });
+
+    await engine.answerApproval(runId, second.id, "approve");
+    const run = await completion;
+
+    expect(run.status).toBe("completed");
+    expect(testRuntime.createSessionRequests).toHaveLength(2);
+    expect(await persistence.listApprovals(runId)).toHaveLength(2);
+  });
+
+  it("persists project and workflow version ids on the run", async () => {
+    const testRuntime = createTestRuntime([{ deltas: ["done"] }]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+    const plan = workflowPlan([{ key: "one", prompt: "Do one" }]);
+
+    const { runId, completion } = await engine.startRun(plan, {
+      ...runOptions(),
+      projectId: "project-1",
+      workflowVersionId: "workflow-version-1",
+    });
+    const run = await completion;
+
+    expect(run.projectId).toBe("project-1");
+    expect(run.workflowVersionId).toBe("workflow-version-1");
+    expect((await persistence.getRun(runId))?.projectId).toBe("project-1");
+    expect(
+      (await persistence.getRun(runId))?.workflowVersionId,
+    ).toBe("workflow-version-1");
   });
 });
 

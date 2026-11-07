@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { WorkflowPersistenceError } from "../persistence-errors";
 
 /** Latest schema version this build can read and write. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 interface Migration {
   readonly version: number;
@@ -160,6 +160,13 @@ const MIGRATIONS: readonly Migration[] = [
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )`,
+    ],
+  },
+  {
+    version: 3,
+    statements: [
+      `ALTER TABLE workflow_runs ADD COLUMN project_id TEXT`,
+      `ALTER TABLE workflow_runs ADD COLUMN workflow_version_id TEXT`,
     ],
   },
 ];

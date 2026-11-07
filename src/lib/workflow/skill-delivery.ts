@@ -154,6 +154,12 @@ export async function projectWorkflowVersionWithSkills(
       lookup,
       step.skillVersionIds,
     );
+    const approvalPoint =
+      step.approvalPointKey === undefined
+        ? undefined
+        : workflowVersion.approvalPoints.find(
+            (point) => point.key === step.approvalPointKey,
+          );
 
     steps.push({
       key: step.key,
@@ -165,6 +171,14 @@ export async function projectWorkflowVersionWithSkills(
       ...(step.retry === undefined
         ? {}
         : { retry: { maxAttempts: step.retry.maxAttempts } }),
+      ...(approvalPoint === undefined
+        ? {}
+        : {
+            approval: {
+              key: approvalPoint.key,
+              message: approvalPoint.message,
+            },
+          }),
     });
   }
 

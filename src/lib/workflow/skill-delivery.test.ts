@@ -218,6 +218,36 @@ describe("projectWorkflowVersionWithSkills", () => {
     ).rejects.toMatchObject({ code: "invalid_workflow_version" });
   });
 
+  it("copies each step's approval point in order", async () => {
+    const version = workflowVersion({
+      approvalPoints: [
+        { key: "release", message: "Approve the release" },
+        { key: "deploy", message: "Approve the deploy" },
+      ],
+      steps: [
+        {
+          key: "first",
+          skillVersionIds: ["skill-version-a"],
+          approvalPointKey: "release",
+        },
+        { key: "second", skillVersionIds: ["skill-version-a"] },
+        {
+          key: "third",
+          skillVersionIds: ["skill-version-a"],
+          approvalPointKey: "deploy",
+        },
+      ],
+    });
+
+    const plan = await projectWorkflowVersionWithSkills(version, lookupOf(a));
+
+    expect(plan.steps.map((step) => step.approval)).toEqual([
+      { key: "release", message: "Approve the release" },
+      undefined,
+      { key: "deploy", message: "Approve the deploy" },
+    ]);
+  });
+
   it("rejects the whole projection when any step cannot resolve", async () => {
     const version = workflowVersion({
       steps: [

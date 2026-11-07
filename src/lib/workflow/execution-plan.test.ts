@@ -102,4 +102,55 @@ describe("validateExecutionPlan", () => {
       ).toThrow(InvalidExecutionPlanError);
     },
   );
+
+  it("accepts an approval point on a step", () => {
+    expect(() =>
+      validateExecutionPlan(
+        plan([
+          step({
+            key: "gated",
+            approval: { key: "release", message: "Approve the release" },
+          }),
+        ]),
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects an approval point that is not an object", () => {
+    expect(() =>
+      validateExecutionPlan(
+        plan([step({ approval: "release" as unknown as ExecutionStep["approval"] })]),
+      ),
+    ).toThrow('Step "step-1" approval must be an object');
+  });
+
+  it("rejects an empty approval key or message", () => {
+    expect(() =>
+      validateExecutionPlan(
+        plan([step({ approval: { key: "", message: "Approve" } })]),
+      ),
+    ).toThrow('Step "step-1" approval.key must be a non-empty string');
+
+    expect(() =>
+      validateExecutionPlan(
+        plan([step({ approval: { key: "release", message: "" } })]),
+      ),
+    ).toThrow('Step "step-1" approval.message must be a non-empty string');
+  });
+
+  it("rejects an unknown approval field", () => {
+    expect(() =>
+      validateExecutionPlan(
+        plan([
+          step({
+            approval: {
+              key: "release",
+              message: "Approve",
+              extra: true,
+            } as unknown as ExecutionStep["approval"],
+          }),
+        ]),
+      ),
+    ).toThrow('Step "step-1" approval field "extra" is not allowed');
+  });
 });

@@ -19,6 +19,12 @@ export type StepRunStatus =
   | "failed"
   | "cancelled";
 
+/** Approval point copied into an executable step by skill delivery. */
+export interface ExecutionApprovalPoint {
+  readonly key: string;
+  readonly message: string;
+}
+
 /** Lifecycle of an approval request recorded against a run and step. */
 export type ApprovalRequestStatus =
   | "pending"
@@ -41,7 +47,11 @@ export type WorkflowHistoryKind =
   | "step_failed"
   | "step_cancelled"
   | "session_close_failed"
-  | "containment_refused";
+  | "containment_refused"
+  | "approval_requested"
+  | "approval_approved"
+  | "approval_rejected"
+  | "approval_cancelled";
 
 /** Attempt policy for one executable step. */
 export interface ExecutionRetryPolicy {
@@ -56,6 +66,8 @@ export interface ExecutionStep {
   readonly skillVersionIds?: readonly string[];
   readonly workingDirectory?: string;
   readonly retry?: ExecutionRetryPolicy;
+  /** Present when a human must decide before this step executes. */
+  readonly approval?: ExecutionApprovalPoint;
 }
 
 /** Execution-facing projection of a published workflow. */
@@ -71,8 +83,10 @@ export interface WorkflowExecutionPlan {
  */
 export interface WorkflowRun {
   readonly id: string;
+  readonly projectId?: string;
   readonly workflowId: string;
   readonly workflowVersion: number;
+  readonly workflowVersionId?: string;
   readonly plan: WorkflowExecutionPlan;
   readonly runtimeProfileId: string;
   readonly workspaceRoot: string;

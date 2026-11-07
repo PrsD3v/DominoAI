@@ -8,6 +8,10 @@ export class InvalidExecutionPlanError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** Validates the minimal invariants the engine relies on before execution. */
 export function validateExecutionPlan(plan: WorkflowExecutionPlan): void {
   if (!Array.isArray(plan.steps) || plan.steps.length === 0) {
@@ -15,7 +19,6 @@ export function validateExecutionPlan(plan: WorkflowExecutionPlan): void {
       "A workflow execution plan must contain at least one step",
     );
   }
-
   const seenKeys = new Set<string>();
 
   for (const step of plan.steps) {
@@ -61,6 +64,42 @@ export function validateExecutionPlan(plan: WorkflowExecutionPlan): void {
       if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
         throw new InvalidExecutionPlanError(
           `Step "${step.key}" retry.maxAttempts must be an integer of at least 1`,
+        );
+      }
+    }
+
+    if (step.approval !== undefined) {
+      const approval: unknown = step.approval;
+
+      if (!isRecord(approval)) {
+        throw new InvalidExecutionPlanError(
+          `Step "${step.key}" approval must be an object`,
+        );
+      }
+
+      for (const field of Object.keys(approval)) {
+        if (field !== "key" && field !== "message") {
+          throw new InvalidExecutionPlanError(
+            `Step "${step.key}" approval field "${field}" is not allowed`,
+          );
+        }
+      }
+
+      if (
+        typeof approval.key !== "string" ||
+        approval.key.length === 0
+      ) {
+        throw new InvalidExecutionPlanError(
+          `Step "${step.key}" approval.key must be a non-empty string`,
+        );
+      }
+
+      if (
+        typeof approval.message !== "string" ||
+        approval.message.length === 0
+      ) {
+        throw new InvalidExecutionPlanError(
+          `Step "${step.key}" approval.message must be a non-empty string`,
         );
       }
     }

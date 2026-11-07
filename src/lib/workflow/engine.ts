@@ -1,5 +1,7 @@
 import type { AgentRuntime, PromptResult, Session } from "../../types/runtime";
 import type {
+  ApprovalRequest,
+  ExecutionApprovalPoint,
   RuntimeEventRecord,
   RuntimeSessionRef,
   StepRun,
@@ -15,7 +17,8 @@ import { validateExecutionPlan } from "./execution-plan";
 /** Dependencies required to create an engine. */
 export interface CreateWorkflowEngineOptions {
   readonly persistence: WorkflowExecutionPersistence;
-  readonly runtime: AgentRuntime;
+  /** Fallback runtime for callers that do not supply one per run. */
+  readonly runtime?: AgentRuntime;
   readonly idFactory: () => string;
   readonly now: () => string;
 }
@@ -24,6 +27,32 @@ export interface CreateWorkflowEngineOptions {
 export interface StartWorkflowRunOptions {
   readonly workspaceRoot: string;
   readonly runtimeProfileId: string;
+  readonly projectId?: string;
+  readonly workflowVersionId?: string;
+  /** Runtime created for this run. Falls back to the engine runtime. */
+  readonly runtime?: AgentRuntime;
+}
+
+/** Human decision on a pending approval. */
+export type ApprovalDecision = "approve" | "reject";
+
+/** Reasons an approval answer cannot be applied. */
+export type WorkflowApprovalErrorReason =
+  | "not_found"
+  | "already_resolved"
+  | "run_not_waiting";
+
+/** Raised when an approval cannot be answered as requested. */
+export class WorkflowApprovalError extends Error {
+  readonly reason: WorkflowApprovalErrorReason;
+  readonly approvalId: string;
+
+  constructor(reason: WorkflowApprovalErrorReason, approvalId: string) {
+    super(`Cannot answer approval "${approvalId}": ${reason.replaceAll("_", " ")}`);
+    this.name = "WorkflowApprovalError";
+    this.reason = reason;
+    this.approvalId = approvalId;
+  }
 }
 
 /** A started run handle. The completion promise never rejects for a step failure. */
@@ -41,10 +70,20 @@ export interface WorkflowEngine {
   pauseRun(runId: string): Promise<void>;
   continueRun(runId: string): Promise<WorkflowRun>;
   cancelRun(runId: string): Promise<void>;
+  answerApproval(
+    runId: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+  ): Promise<void>;
 }
 
 /** Run operation named by a state error. */
-export type WorkflowRunOperation = "start" | "pause" | "continue" | "cancel";
+export type WorkflowRunOperation =
+  | "start"
+  | "pause"
+  | "continue"
+  | "cancel"
+  | "answer_approval";
 
 /** Raised when a run operation is not valid for the current engine state. */
 export class WorkflowRunStateError extends Error {
@@ -72,11 +111,20 @@ interface Deferred<T> {
   readonly resolve: (value: T) => void;
 }
 
+type ApprovalOutcome = "approved" | "rejected" | "cancelled";
+
+interface PendingApproval {
+  readonly approvalId: string;
+  readonly resolve: (outcome: ApprovalOutcome) => void;
+}
+
 interface ActiveRun {
   readonly runId: string;
+  readonly runtime: AgentRuntime;
   status: WorkflowRunStatus;
   pauseRequested: boolean;
   cancelRequested: boolean;
+  pendingApproval: PendingApproval | null;
   completion: Promise<WorkflowRun>;
   resolveCompletion: (run: WorkflowRun) => void;
   readonly pauseWaiters: Array<() => void>;
@@ -134,6 +182,12 @@ class WorkflowEngineImpl implements WorkflowEngine {
       );
     }
 
+    const runtime = options.runtime ?? this.options.runtime;
+
+    if (runtime === undefined) {
+      throw new Error("A workflow run requires a runtime");
+    }
+
     this.starting = true;
 
     try {
@@ -144,8 +198,14 @@ class WorkflowEngineImpl implements WorkflowEngine {
       const runId = this.options.idFactory();
       const run: WorkflowRun = {
         id: runId,
+        ...(options.projectId === undefined
+          ? {}
+          : { projectId: options.projectId }),
         workflowId: plan.workflowId,
         workflowVersion: plan.workflowVersion,
+        ...(options.workflowVersionId === undefined
+          ? {}
+          : { workflowVersionId: options.workflowVersionId }),
         plan: structuredClone(plan),
         runtimeProfileId: options.runtimeProfileId,
         workspaceRoot,
@@ -181,9 +241,11 @@ class WorkflowEngineImpl implements WorkflowEngine {
       const completion = deferred<WorkflowRun>();
       const active: ActiveRun = {
         runId,
+        runtime,
         status: "running",
         pauseRequested: false,
         cancelRequested: false,
+        pendingApproval: null,
         completion: completion.promise,
         resolveCompletion: completion.resolve,
         pauseWaiters: [],
@@ -254,7 +316,11 @@ class WorkflowEngineImpl implements WorkflowEngine {
     const active = this.requireActive(runId, "cancel");
     const run = await this.requireRun(runId);
 
-    if (run.status !== "running" && run.status !== "paused") {
+    if (
+      run.status !== "running" &&
+      run.status !== "paused" &&
+      run.status !== "waiting_approval"
+    ) {
       throw new WorkflowRunStateError("cancel", runId, run.status);
     }
 
@@ -270,11 +336,85 @@ class WorkflowEngineImpl implements WorkflowEngine {
 
     await this.options.persistence.updateRun(updated);
 
-    if (run.status === "paused") {
+    if (run.status === "paused" || run.status === "waiting_approval") {
       await this.cancel(active, updated);
     }
 
     return waiter;
+  }
+
+  async answerApproval(
+    runId: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+  ): Promise<void> {
+    const active = this.requireActive(runId, "answer_approval");
+    const run = await this.requireRun(runId);
+
+    if (run.status !== "waiting_approval") {
+      throw new WorkflowRunStateError("answer_approval", runId, run.status);
+    }
+
+    const approval = await this.options.persistence.getApproval(approvalId);
+
+    if (approval === null || approval.runId !== runId) {
+      throw new WorkflowApprovalError("not_found", approvalId);
+    }
+
+    if (approval.status !== "pending") {
+      throw new WorkflowApprovalError("already_resolved", approvalId);
+    }
+
+    if (
+      active.pendingApproval === null ||
+      active.pendingApproval.approvalId !== approvalId
+    ) {
+      throw new WorkflowApprovalError("run_not_waiting", approvalId);
+    }
+
+    const resolvedAt = this.options.now();
+
+    if (decision === "approve") {
+      await this.options.persistence.updateApproval({
+        ...approval,
+        status: "approved",
+        resolvedAt,
+      });
+      await this.options.persistence.updateRun({
+        ...run,
+        status: "running",
+        updatedAt: resolvedAt,
+      });
+      await this.appendHistory(
+        runId,
+        "approval_approved",
+        `Approval "${approval.message}" approved`,
+        approval.stepRunId,
+      );
+
+      const pending = active.pendingApproval;
+      active.pendingApproval = null;
+      active.status = "running";
+      pending.resolve("approved");
+      return;
+    }
+
+    await this.options.persistence.updateApproval({
+      ...approval,
+      status: "rejected",
+      resolvedAt,
+    });
+    await this.appendHistory(
+      runId,
+      "approval_rejected",
+      `Approval "${approval.message}" rejected`,
+      approval.stepRunId,
+    );
+
+    const pending = active.pendingApproval;
+    active.pendingApproval = null;
+    pending.resolve("rejected");
+    await this.cancel(active, await this.requireRun(runId));
   }
 
   private async run(active: ActiveRun): Promise<void> {
@@ -322,7 +462,31 @@ class WorkflowEngineImpl implements WorkflowEngine {
         return;
       }
 
-      const outcome = await this.executeStep(run, stepRun, step);
+      if (step.approval !== undefined) {
+        const decision = await this.requestApproval(
+          active,
+          run,
+          stepRun,
+          step.approval,
+        );
+
+        if (decision !== "approved") {
+          return;
+        }
+
+        const approvedRun = await this.requireRun(active.runId);
+
+        if (active.cancelRequested) {
+          await this.cancel(active, approvedRun);
+          return;
+        }
+
+        if (approvedRun.status !== "running") {
+          return;
+        }
+      }
+
+      const outcome = await this.executeStep(active, run, stepRun, step);
 
       if (outcome.status === "failed") {
         await this.failRun(active, new Error(outcome.error));
@@ -353,7 +517,65 @@ class WorkflowEngineImpl implements WorkflowEngine {
     await this.complete(active, await this.requireRun(active.runId));
   }
 
+  private async requestApproval(
+    active: ActiveRun,
+    run: WorkflowRun,
+    stepRun: StepRun,
+    approvalPoint: ExecutionApprovalPoint,
+  ): Promise<ApprovalOutcome> {
+    const approvals = await this.options.persistence.listApprovals(run.id);
+    const existing = approvals.find(
+      (record) => record.stepRunId === stepRun.id,
+    );
+
+    if (existing?.status === "approved") {
+      return "approved";
+    }
+
+    if (existing !== undefined && existing.status !== "pending") {
+      throw new Error(
+        `Approval for step "${stepRun.stepKey}" is already ${existing.status}`,
+      );
+    }
+
+    const approval: ApprovalRequest =
+      existing ?? {
+        id: this.options.idFactory(),
+        runId: run.id,
+        stepRunId: stepRun.id,
+        status: "pending",
+        message: approvalPoint.message,
+        requestedAt: this.options.now(),
+      };
+
+    if (existing === undefined) {
+      await this.options.persistence.createApproval(approval);
+    }
+
+    const decision = new Promise<ApprovalOutcome>((resolve) => {
+      active.pendingApproval = { approvalId: approval.id, resolve };
+    });
+    const current = await this.requireRun(run.id);
+    const waitingAt = this.options.now();
+
+    await this.options.persistence.updateRun({
+      ...current,
+      status: "waiting_approval",
+      updatedAt: waitingAt,
+    });
+    active.status = "waiting_approval";
+    await this.appendHistory(
+      run.id,
+      "approval_requested",
+      `Approval "${approval.message}" requested for step ${stepRun.stepKey}`,
+      stepRun.id,
+    );
+
+    return decision;
+  }
+
   private async executeStep(
+    active: ActiveRun,
     run: WorkflowRun,
     stepRun: StepRun,
     step: WorkflowExecutionPlan["steps"][number],
@@ -421,7 +643,7 @@ class WorkflowEngineImpl implements WorkflowEngine {
       };
       await this.options.persistence.updateStepRun(current);
 
-      const attemptResult = await this.runAttempt(run, current, step);
+      const attemptResult = await this.runAttempt(active, run, current, step);
 
       if (attemptResult.error !== null) {
         const message = describeError(attemptResult.error);
@@ -537,6 +759,7 @@ class WorkflowEngineImpl implements WorkflowEngine {
   }
 
   private async runAttempt(
+    active: ActiveRun,
     run: WorkflowRun,
     stepRun: StepRun,
     step: WorkflowExecutionPlan["steps"][number],
@@ -549,7 +772,7 @@ class WorkflowEngineImpl implements WorkflowEngine {
     let error: unknown | null = null;
 
     try {
-      session = await this.options.runtime.createSession({
+      session = await active.runtime.createSession({
         workspaceRoot: run.workspaceRoot,
       });
       sessionRef = {
@@ -557,7 +780,7 @@ class WorkflowEngineImpl implements WorkflowEngine {
         runId: run.id,
         stepRunId: stepRun.id,
         runtimeSessionId: session.id,
-        agentName: this.options.runtime.capabilities.agent?.name ?? null,
+        agentName: active.runtime.capabilities.agent?.name ?? null,
         createdAt: this.options.now(),
       };
       await this.options.persistence.createRuntimeSessionRef(sessionRef);
@@ -631,6 +854,31 @@ class WorkflowEngineImpl implements WorkflowEngine {
     }
   }
 
+  private async cancelPendingApprovals(
+    runId: string,
+    resolvedAt: string,
+  ): Promise<void> {
+    const approvals = await this.options.persistence.listApprovals(runId);
+
+    for (const approval of approvals) {
+      if (approval.status !== "pending") {
+        continue;
+      }
+
+      await this.options.persistence.updateApproval({
+        ...approval,
+        status: "cancelled",
+        resolvedAt,
+      });
+      await this.appendHistory(
+        runId,
+        "approval_cancelled",
+        `Approval "${approval.message}" cancelled`,
+        approval.stepRunId,
+      );
+    }
+  }
+
   private async pause(active: ActiveRun, run: WorkflowRun): Promise<void> {
     if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
       return;
@@ -659,6 +907,12 @@ class WorkflowEngineImpl implements WorkflowEngine {
     }
 
     const cancelledAt = this.options.now();
+    await this.cancelPendingApprovals(run.id, cancelledAt);
+
+    const pendingApproval = active.pendingApproval;
+    active.pendingApproval = null;
+    pendingApproval?.resolve("cancelled");
+
     const cancelled: WorkflowRun = {
       ...run,
       status: "cancelled",
@@ -712,8 +966,14 @@ class WorkflowEngineImpl implements WorkflowEngine {
 
     const message = describeError(error);
     const failedAt = this.options.now();
+    await this.cancelPendingApprovals(run.id, failedAt);
     const stepRuns = await this.options.persistence.listStepRuns(run.id);
     const runningStep = stepRuns.find((step) => step.status === "running");
+
+    if (active.pendingApproval !== null) {
+      active.pendingApproval.resolve("cancelled");
+      active.pendingApproval = null;
+    }
 
     if (runningStep !== undefined) {
       await this.options.persistence.updateStepRun({
