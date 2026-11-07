@@ -52,6 +52,8 @@ export interface ExecutionRetryPolicy {
 export interface ExecutionStep {
   readonly key: string;
   readonly prompt: string;
+  /** Published skill versions delivered in this step's prompt, in composition order. */
+  readonly skillVersionIds?: readonly string[];
   readonly workingDirectory?: string;
   readonly retry?: ExecutionRetryPolicy;
 }

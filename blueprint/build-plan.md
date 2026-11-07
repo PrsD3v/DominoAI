@@ -98,7 +98,15 @@ so `/feature` can proceed to Feature 8 while Feature 7 remains open.
 ## Blueprint and skill integration
 
 - [x] 12. **Blueprint compatibility assessment** - Evidence-based review of the Blueprint definition format, licensing, and semantics, recorded as a decision before any import or mapping code, and before anything assumes Blueprint definitions can be imported without semantic changes.
-- [ ] 13. **Skill delivery proof and central library** - Load a selected Skill from Domino's central versioned library and deliver it to the Reasonix agent through a verified ACP-compatible mechanism. Acceptance: a small observable task demonstrably uses the delivered instructions, and the target project's file tree is unchanged by any permanent Skill install. The mechanism stays open until this proof provides evidence, and no desktop or CLI capability is assumed to work through ACP without it.
+### Feature 13 - Skill delivery proof and central library (OPEN)
+
+Feature 13A is buildable locally. Feature 13B requires a live Reasonix session
+and is blocked on the same live-runtime prerequisites as 3B and 6B. It is
+intentionally outside the selectable checklist so `/feature` can proceed while
+Feature 13 remains open.
+
+- [x] 13A. **Skill library and inline ACP prompt delivery** - Resolve the published skill versions bound to a workflow step from Domino's central library, compose their content into the step prompt in declared order, and deliver it over the existing ACP `session/prompt` path without writing anything into the target project. Acceptance: a fake runtime proves the composed instructions arrive unchanged and in order; a missing or duplicate skill version fails before any runtime session is created; the stored run plan pins the delivered skill version ids; the target workspace tree is unchanged; no Reasonix plugin, extension, or project Skill install is involved.
+- **13B. Live skill delivery proof - BLOCKED / DEFERRED** - Do not mark complete. Original acceptance remains unchanged: a small observable task demonstrably uses the delivered instructions through a live Reasonix ACP session, and the target project's file tree is unchanged by any permanent Skill install. Blocker: no valid disposable credential and no writable Reasonix home in the current environment. Resume only after both are available and the live test actually passes. This remains required before Feature 13 completion or any claim that delivered skills influence model behavior.
 
 ## Dashboard
 

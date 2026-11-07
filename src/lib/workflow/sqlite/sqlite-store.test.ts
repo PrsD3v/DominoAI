@@ -193,6 +193,61 @@ describe("openSqliteWorkflowStore", () => {
     expect(await store.getRun("run-1")).toEqual(run);
   });
 
+  it("round-trips plan skill version ids and rejects malformed values", async () => {
+    const store = openStore();
+    const planWithSkills: WorkflowExecutionPlan = {
+      workflowId: "workflow-1",
+      workflowVersion: 2,
+      steps: [
+        {
+          key: "step-1",
+          prompt: "Do the work",
+          skillVersionIds: ["skill-version-a", "skill-version-b"],
+        },
+      ],
+    };
+
+    await store.createRun(baseRun({ plan: planWithSkills }));
+    expect((await store.getRun("run-1"))?.plan).toEqual(planWithSkills);
+
+    await store.createRun(
+      baseRun({
+        id: "run-2",
+        plan: {
+          ...PLAN,
+          steps: [
+            { key: "step-1", prompt: "Do the work", skillVersionIds: [] },
+          ],
+        } as unknown as WorkflowExecutionPlan,
+      }),
+    );
+    await expect(store.getRun("run-2")).rejects.toThrow(
+      WorkflowPersistenceError,
+    );
+    await expect(store.getRun("run-2")).rejects.toThrow(
+      "has an unreadable plan step",
+    );
+
+    await store.createRun(
+      baseRun({
+        id: "run-3",
+        plan: {
+          ...PLAN,
+          steps: [
+            {
+              key: "step-1",
+              prompt: "Do the work",
+              skillVersionIds: ["same", "same"],
+            },
+          ],
+        } as unknown as WorkflowExecutionPlan,
+      }),
+    );
+    await expect(store.getRun("run-3")).rejects.toThrow(
+      "has an unreadable plan step",
+    );
+  });
+
   it("returns null for missing records", async () => {
     const store = openStore();
 

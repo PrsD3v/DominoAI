@@ -27,6 +27,34 @@ export function validateExecutionPlan(plan: WorkflowExecutionPlan): void {
 
     seenKeys.add(step.key);
 
+    if (step.skillVersionIds !== undefined) {
+      const skillVersionIds: unknown = step.skillVersionIds;
+
+      if (!Array.isArray(skillVersionIds) || skillVersionIds.length === 0) {
+        throw new InvalidExecutionPlanError(
+          `Step "${step.key}" skillVersionIds must be a non-empty array`,
+        );
+      }
+
+      const seenSkillVersionIds = new Set<string>();
+
+      for (const skillVersionId of skillVersionIds) {
+        if (typeof skillVersionId !== "string" || skillVersionId.length === 0) {
+          throw new InvalidExecutionPlanError(
+            `Step "${step.key}" skillVersionIds must contain non-empty strings`,
+          );
+        }
+
+        if (seenSkillVersionIds.has(skillVersionId)) {
+          throw new InvalidExecutionPlanError(
+            `Step "${step.key}" skillVersionIds duplicates "${skillVersionId}"`,
+          );
+        }
+
+        seenSkillVersionIds.add(skillVersionId);
+      }
+    }
+
     if (step.retry !== undefined) {
       const { maxAttempts } = step.retry;
 

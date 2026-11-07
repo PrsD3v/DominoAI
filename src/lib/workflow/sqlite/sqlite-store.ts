@@ -181,6 +181,28 @@ function decodePlan(value: unknown, id: string): WorkflowExecutionPlan {
     if (!isRecord(step) || typeof step.key !== "string" || typeof step.prompt !== "string") {
       throw decodeFailure("workflow_runs", id, "has an unreadable plan step");
     }
+
+    if (step.skillVersionIds !== undefined) {
+      const skillVersionIds = step.skillVersionIds;
+
+      if (!Array.isArray(skillVersionIds) || skillVersionIds.length === 0) {
+        throw decodeFailure("workflow_runs", id, "has an unreadable plan step");
+      }
+
+      const seen = new Set<string>();
+
+      for (const skillVersionId of skillVersionIds) {
+        if (
+          typeof skillVersionId !== "string" ||
+          skillVersionId.length === 0 ||
+          seen.has(skillVersionId)
+        ) {
+          throw decodeFailure("workflow_runs", id, "has an unreadable plan step");
+        }
+
+        seen.add(skillVersionId);
+      }
+    }
   }
 
   return value as unknown as WorkflowExecutionPlan;

@@ -56,6 +56,44 @@ describe("validateExecutionPlan", () => {
     ).toThrow('Duplicate workflow step key "same"');
   });
 
+  it("accepts skill version ids in composition order", () => {
+    expect(() =>
+      validateExecutionPlan(
+        plan([
+          step({
+            skillVersionIds: ["skill-version-b", "skill-version-a"],
+          }),
+        ]),
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects empty skill version ids", () => {
+    expect(() =>
+      validateExecutionPlan(plan([step({ skillVersionIds: [] })])),
+    ).toThrow('Step "step-1" skillVersionIds must be a non-empty array');
+  });
+
+  it("rejects duplicate skill version ids", () => {
+    expect(() =>
+      validateExecutionPlan(
+        plan([step({ skillVersionIds: ["same", "same"] })]),
+      ),
+    ).toThrow('Step "step-1" skillVersionIds duplicates "same"');
+  });
+
+  it("rejects non-string skill version ids", () => {
+    expect(() =>
+      validateExecutionPlan(
+        plan([
+          step({
+            skillVersionIds: [1 as unknown as string],
+          }),
+        ]),
+      ),
+    ).toThrow('Step "step-1" skillVersionIds must contain non-empty strings');
+  });
+
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
     "rejects maxAttempts %s",
     (maxAttempts) => {
