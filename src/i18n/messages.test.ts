@@ -39,9 +39,9 @@ describe("translation catalogs", () => {
   });
 
   it("translate prose instead of copying it", () => {
-    expect(fa.home.title).not.toBe(en.home.title);
+    expect(fa.projects.title).not.toBe(en.projects.title);
     expect(fa.states.errorTitle).not.toBe(en.states.errorTitle);
-    expect(fa.home.title).toMatch(/[\u0600-\u06FF]/);
+    expect(fa.projects.title).toMatch(/[\u0600-\u06FF]/);
   });
 
   it("keep the product brand unchanged", () => {

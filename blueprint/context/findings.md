@@ -842,3 +842,49 @@ into a fourth feature and makes the cleanup larger.
 `@/lib/workflow/...` in the same cleanup pass that fixes the earlier findings. No
 behavior changes.
 **Resolution:** Open.
+
+### F-46 [P3] open - The four screens copy the same load/refresh scaffold and sentinels
+
+**File:** src/components/projects/projects-screen.tsx:54
+**Found:** 2026-11-08 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `projects-screen.tsx:78-143`, `run-list-screen.tsx:61-92`,
+`workflows-screen.tsx:46-74`, and `run-detail-screen.tsx:57-79` each implement the
+same sequence by hand: `Promise.all` the endpoints, return the first typed
+failure, narrow every body, and fall back to `unexpected`; the four screens then
+repeat one loading/error/retry/ready render block (`projects-screen.tsx:479-535`,
+`run-list-screen.tsx:405-504`, `workflows-screen.tsx:271-319`). The `__no_profile__`
+sentinel is defined twice (`project-form.tsx:46`, `projects-screen.tsx:54`), and
+`type BadgeVariant` is redeclared in four places (`run-status-badge.tsx:7`,
+`step-timeline.tsx:15`, `approval-panel.tsx:23`, `event-feed.tsx:16`). Each copy
+is small, but a later change to the failure mapping or to the empty-state rule
+has to be made four times, and the duplicated sentinel is the kind of pair that
+drifts.
+**Suggested fix:** Extract one `useCatalogLoad`-style loader returning the same
+`LoadState` union plus a shared `LoadFeedback` block for loading/error/retry, move
+the no-profile sentinel into one exported constant, and derive the badge variant
+type from the `Badge` component's own props instead of redeclaring it.
+**Resolution:** Open. Re-checked on 2026-11-07 against `e459cee`: the duplication is unchanged — `loadProjects` (`projects-screen.tsx:77-142`), `loadRuns` (`run-list-screen.tsx:61-92`), `loadWorkflows` (`workflows-screen.tsx:46-74`), and `loadRun` (`run-detail-screen.tsx:57-79`) still hand-roll the same `Promise.all`/first-failure/narrow/`unexpected` sequence, the loading/error/retry render blocks are still repeated per screen, and `type BadgeVariant` is still redeclared in `run-status-badge.tsx:7`, `step-timeline.tsx:15`, `approval-panel.tsx:23`, and `event-feed.tsx:16`. The sentinel half is resolved: `NO_PROFILE` now has one definition (`projects/screen.ts:23`) imported by both project screens.
+
+### F-48 [P3] open - The PATCH request helper is never called and never tested
+
+**File:** src/lib/runs/client.ts:61
+**Found:** 2026-11-07 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `patchRunJson` is exported beside `requestRunJson` and `postRunJson`, but nothing imports it. The feature's only PATCH goes through `requestSettingsJson` (`projects-screen.tsx:184-193`), and no test references the helper, so a JSON-PATCH branch with its own `no-store` fetch and `parseRunFailure` mapping ships unreachable. This is the same class F-44 closed for `profileOptions`, one round later.
+**Suggested fix:** Delete `patchRunJson`, or route the project-profile PATCH through it and keep `requestSettingsJson` for `/api/settings/profiles`; if it stays, add a stubbed-`fetch` test so the branch is exercised.
+**Resolution:** Open.
+
+### F-49 [P3] open - Profile and skill labels are formatted twice in the new modules
+
+**File:** src/lib/runs/screen.ts:562
+**Found:** 2026-11-07 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `profileLabel` (`runs/screen.ts:562-571`) and `profileOptionLabel` (`projects/screen.ts:139-148`) are identical implementations of the same lookup; only the projects copy reaches a screen (`projects-screen.tsx:309`), while the runs copy is reachable only from `screen.test.ts:410-412`. The skill label is duplicated the same way: `skillVersionLabel` (`projects/screen.ts:122-137`) formats `${name} v${version}`, and `stepViews` rebuilds that exact string from a private version map (`workflows/screen.ts:30-47`). F-44's accepted fix asked for one implementation of each label format, so the drift it removed has reappeared in a second pair.
+**Suggested fix:** Keep one profile lookup and one skill-label formatter in the module that owns the catalog shape, import them from the screens, and point the tests at the survivor.
+**Resolution:** Open.
+
+### F-50 [P3] open - The control predicates are tested for two statuses each, not for every run status
+
+**File:** src/lib/runs/screen.test.ts:330
+**Found:** 2026-11-07 by /audit independent (scope: current; lens: tests)
+**Why it matters:** Spec step 1's done-when asks for "control availability for each run status", but `control availability` (`screen.test.ts:329-341`) asserts eight of the thirty-two status-by-predicate cells: `canPause` for `running`/`paused`, `canContinue` for `paused`/`running`, `canCancel` for `waiting_approval`/`completed`, and `canAnswerApproval` for `waiting_approval`/`paused`. `pending`, `failed`, `cancelled`, and `interrupted` are never passed to any predicate, so a wrong branch — for example allowing cancel on `failed` or pause on `pending` — would leave the suite green while the run detail offered controls the server refuses.
+**Suggested fix:** Drive the block from a table over every `WorkflowRunStatus` with the four expected booleans per row.
+**Resolution:** Open.

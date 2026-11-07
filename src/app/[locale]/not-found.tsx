@@ -15,7 +15,7 @@ export default function NotFound() {
         {messages.states.notFoundBody}
       </p>
       <Link
-        href={`/${locale}`}
+        href={`/${locale}/runs`}
         className="mt-6 w-fit rounded-full border border-black/10 px-4 py-2 text-sm font-medium dark:border-white/15"
       >
         {messages.states.backHome}
