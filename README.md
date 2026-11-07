@@ -68,6 +68,7 @@ click away and the choice is kept across reloads.
 - [Build plan](blueprint/build-plan.md) - ordered feature list
 - [Project overview](blueprint/context/project-overview.md) - generated source of truth
 - [Reasonix ACP contract](docs/reasonix-acp-contract.md) - observed capabilities
+- [Blueprint compatibility assessment](docs/blueprint-compatibility.md) - why Blueprint definitions are not imported as-is
 
 ## License
 

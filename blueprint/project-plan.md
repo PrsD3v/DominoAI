@@ -363,7 +363,9 @@ feature 1.
 4. Dashboard event transport (SSE is suggested) and its reconnect behavior -
    feature 14.
 5. Whether Blueprint definitions are consumed as-is or mapped into a Domino model
-   - feature 12.
+   - feature 12. Resolved by feature 12: not consumed as-is and no importer is
+   built; see `docs/blueprint-compatibility.md`. Blueprint skill text may be
+   copied manually into a Domino SkillVersion with review.
 6. Packaging and install path - post-MVP, alongside release automation.
 7. Whether the theme follows the OS only or also exposes an explicit light/dark
    toggle - feature 14.

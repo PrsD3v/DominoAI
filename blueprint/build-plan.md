@@ -97,7 +97,7 @@ so `/feature` can proceed to Feature 8 while Feature 7 remains open.
 
 ## Blueprint and skill integration
 
-- [ ] 12. **Blueprint compatibility assessment** - Evidence-based review of the Blueprint definition format, licensing, and semantics, recorded as a decision before any import or mapping code, and before anything assumes Blueprint definitions can be imported without semantic changes.
+- [x] 12. **Blueprint compatibility assessment** - Evidence-based review of the Blueprint definition format, licensing, and semantics, recorded as a decision before any import or mapping code, and before anything assumes Blueprint definitions can be imported without semantic changes.
 - [ ] 13. **Skill delivery proof and central library** - Load a selected Skill from Domino's central versioned library and deliver it to the Reasonix agent through a verified ACP-compatible mechanism. Acceptance: a small observable task demonstrably uses the delivered instructions, and the target project's file tree is unchanged by any permanent Skill install. The mechanism stays open until this proof provides evidence, and no desktop or CLI capability is assumed to work through ACP without it.
 
 ## Dashboard
