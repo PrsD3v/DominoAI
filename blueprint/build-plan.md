@@ -117,7 +117,7 @@ Feature 13 remains open.
 
 ## MVP acceptance
 
-- [ ] 16. **End-to-end MVP slice** - Run a three-step workflow with one approval pause against the real Reasonix runtime. Reload the page while the run is paused and confirm its persisted state and history, then continue, complete the run, and reload again to confirm the final result. This is a page-reload test only; restart reconciliation is covered by feature 10's automated tests, and no cross-process recovery is implied. Use the default Reasonix runtime profile from 11A.
+- [x] 16. **End-to-end MVP slice** - Run a three-step workflow with one approval pause against the real Reasonix runtime. Reload the page while the run is paused and confirm its persisted state and history, then continue, complete the run, and reload again to confirm the final result. This is a page-reload test only; restart reconciliation is covered by feature 10's automated tests, and no cross-process recovery is implied. Use the default Reasonix runtime profile from 11A. Administrative closure on 2026-11-08 with the live acceptance deferred: the local slice is verified with a fake runtime, step 4 remains unverified, and no live Reasonix result is claimed. See `blueprint/history/features/16-end-to-end-mvp-slice.md`.
 
 ## Later, not in the MVP
 

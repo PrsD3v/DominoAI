@@ -1,11 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import type { AcpRuntimeOptions } from "../runtime/acp/runtime";
 import type { RuntimeProfile } from "../../types/runtime-settings";
 import { createFakeRuntime } from "../runtime/fake-runtime";
 import {
   DEFAULT_RUN_REQUEST_TIMEOUT_MS,
   createReasonixRunRuntime,
+  createRunServiceFromEnvironment,
 } from "./runtime";
+
+const directories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    directories.splice(0).map((directory) =>
+      rm(directory, { recursive: true, force: true }),
+    ),
+  );
+});
+
+async function temporaryDirectory(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "domino-run-runtime-"));
+  directories.push(directory);
+  return directory;
+}
 
 const PROFILE: RuntimeProfile = {
   id: "profile-1",
@@ -76,5 +96,32 @@ describe("createReasonixRunRuntime", () => {
     });
 
     expect(calls[0]?.requestTimeoutMs).toBe(1234);
+  });
+});
+
+describe("createRunServiceFromEnvironment", () => {
+  it("seeds the MVP definition once on an empty database", async () => {
+    const directory = await temporaryDirectory();
+    const databasePath = join(directory, "domino.db");
+    const homeDir = join(directory, "home");
+    await mkdir(homeDir, { recursive: true });
+    const env = { DOMINO_DB_PATH: databasePath };
+
+    const first = await createRunServiceFromEnvironment(env, homeDir, directory);
+    const firstCatalog = await first.listWorkflows();
+
+    expect(firstCatalog.definitions).toEqual([
+      { id: "mvp-workflow", name: "MVP three-step workflow" },
+    ]);
+    expect(firstCatalog.versions).toHaveLength(1);
+    expect(firstCatalog.versions[0]?.id).toBe("mvp-workflow-v1");
+
+    const second = await createRunServiceFromEnvironment(
+      env,
+      homeDir,
+      directory,
+    );
+
+    await expect(second.listWorkflows()).resolves.toEqual(firstCatalog);
   });
 });

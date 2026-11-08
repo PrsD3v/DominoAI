@@ -296,3 +296,26 @@ Status: `COMPLETED` locally; nothing was pushed.
   `main`, push, and delete the feature branch.
 - No push, reset, or stash was used. Every uncommitted file was snapshotted to the
   session scratch directory before consolidation.
+
+## Feature 16 administrative closure, 2026-11-08
+
+Status: `COMPLETED` administratively with the live acceptance `DEFERRED`.
+
+- Feature 16's local slice was implemented and verified on branch
+  `feature/end-to-end-mvp-slice`: a checked-in seed fixture, boot seeding when
+  the definition store is empty, and a local end-to-end test through the run,
+  project, and approval request handlers with the real SQLite store and a fake
+  runtime. Evidence: `npm test` passed 729 tests with 4 live tests skipped,
+  `npx tsc --noEmit` and `npm run build` passed, and `npm run lint` passed with
+  two pre-existing warnings.
+- Build step 4, the live real-runtime reload proof, is `UNVERIFIED`. Reasonix
+  cannot be given a credential in this environment: `~/.reasonix/.env` is a
+  `/dev/null` character device and no disposable key is available. Features 3B,
+  6B, 7B, 13B, and 11A's real connection test share the same blocker.
+- Build-plan item 16 is checked administratively so the roadmap can move on,
+  with this deferral noted on its line. This closure is not a successful live
+  Reasonix run and must not be read as one.
+- Archive: `blueprint/history/features/16-end-to-end-mvp-slice.md`, with a
+  `## Verification exception` section recording the original acceptance, what
+  actually ran, and the resume procedure.
+- No findings and no independent review were recorded for this work item.

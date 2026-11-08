@@ -14,6 +14,7 @@ import {
   type SettingsEnvironment,
 } from "../settings/runtime";
 import { createWorkflowEngine } from "../workflow/engine";
+import { seedMvpDefinition } from "../workflow/mvp-definition";
 import { openSqliteWorkflowStore } from "../workflow/sqlite/sqlite-store";
 import { reconcileInterruptedRuns } from "../workflow/startup-reconciliation";
 import { createRunService, type RunService } from "./service";
@@ -76,6 +77,8 @@ export async function createRunServiceFromEnvironment(
   mkdirSync(dirname(paths.databasePath), { recursive: true, mode: 0o700 });
 
   const store = openSqliteWorkflowStore({ path: paths.databasePath });
+  // Publish the MVP fixture only when the definition store is still empty.
+  await seedMvpDefinition(store);
   const credentials = new ReasonixEnvFileStore({
     homeDir: paths.reasonixHome,
   });
