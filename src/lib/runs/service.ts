@@ -27,8 +27,11 @@ import {
   type ProjectRegistrationInput,
 } from "../projects/registration";
 import type {
+  ApprovalRequest,
   RuntimeEventRecord,
+  StepRun,
   WorkflowExecutionPersistence,
+  WorkflowHistoryEntry,
   WorkflowRun,
 } from "../../types/workflow";
 import type { WorkflowVersion } from "../../types/workflow-definition";
@@ -38,6 +41,10 @@ import {
   WorkflowRunStateError,
 } from "../workflow/engine";
 import {
+  redactRuntimeEvent,
+  redactText,
+} from "../safety/redaction";
+import {
   projectWorkflowVersionWithSkills,
   SkillDeliveryError,
 } from "../workflow/skill-delivery";
@@ -46,6 +53,7 @@ const MESSAGES: Record<RunErrorCode, string> = {
   invalid_request: "The run request is invalid.",
   invalid_json: "The request body must be a JSON object.",
   unsupported_media_type: "The request body must be JSON.",
+  origin_not_allowed: "The request came from an unapproved origin.",
   project_not_found: "The project was not found.",
   workflow_version_not_found: "The workflow version was not found.",
   skill_version_not_found: "The skill version was not found.",
@@ -389,6 +397,53 @@ function summary(run: WorkflowRun, projectName?: string): RunSummary {
   };
 }
 
+function redactRunSummary(item: RunSummary): RunSummary {
+  return item.error === undefined
+    ? item
+    : { ...item, error: redactText(item.error) };
+}
+
+function redactStepRun(item: StepRun): StepRun {
+  return {
+    ...item,
+    ...(item.resultText === undefined
+      ? {}
+      : { resultText: redactText(item.resultText) }),
+    ...(item.error === undefined ? {} : { error: redactText(item.error) }),
+  };
+}
+
+function redactApproval(item: ApprovalRequest): ApprovalRequest {
+  return {
+    ...item,
+    message: redactText(item.message),
+    ...(item.response === undefined
+      ? {}
+      : { response: redactText(item.response) }),
+  };
+}
+
+function redactHistory(
+  item: WorkflowHistoryEntry,
+): WorkflowHistoryEntry {
+  return { ...item, message: redactText(item.message) };
+}
+
+function redactEventRecord(
+  record: RuntimeEventRecord,
+): RuntimeEventRecord {
+  return { ...record, event: redactRuntimeEvent(record.event) };
+}
+
+function redactState(state: RunState): RunState {
+  return {
+    run: redactRunSummary(state.run),
+    steps: state.steps.map(redactStepRun),
+    approvals: state.approvals.map(redactApproval),
+    history: state.history.map(redactHistory),
+  };
+}
+
 export function createRunService(deps: RunServiceDeps): RunService {
   async function storeRead<T>(work: () => Promise<T>): Promise<T> {
     try {
@@ -441,14 +496,14 @@ export function createRunService(deps: RunServiceDeps): RunService {
   }
 
   async function getState(id: string): Promise<RunState> {
-    return stateFor(await requireRun(id));
+    return redactState(await stateFor(await requireRun(id)));
   }
 
   async function getRun(id: string): Promise<RunDetail> {
     const state = await getState(id);
-    const events = await storeRead(() =>
-      deps.persistence.listRuntimeEvents(id),
-    );
+    const events = (
+      await storeRead(() => deps.persistence.listRuntimeEvents(id))
+    ).map(redactEventRecord);
 
     return { ...state, events };
   }
@@ -463,7 +518,7 @@ export function createRunService(deps: RunServiceDeps): RunService {
     );
     const start = Number.isInteger(fromIndex) && fromIndex > 0 ? fromIndex : 0;
 
-    return events.slice(start);
+    return events.slice(start).map(redactEventRecord);
   }
 
   async function listProjects(): Promise<readonly Project[]> {
@@ -639,9 +694,11 @@ export function createRunService(deps: RunServiceDeps): RunService {
     );
 
     return runs.map((run) =>
-      summary(
-        run,
-        run.projectId === undefined ? undefined : names.get(run.projectId),
+      redactRunSummary(
+        summary(
+          run,
+          run.projectId === undefined ? undefined : names.get(run.projectId),
+        ),
       ),
     );
   }
@@ -696,6 +753,25 @@ export function createRunService(deps: RunServiceDeps): RunService {
     input: unknown,
   ): Promise<RunDetail> {
     const run = await requireRun(id);
+    const approval = await storeRead(() =>
+      deps.persistence.getApproval(approvalId),
+    );
+
+    if (approval === null || approval.runId !== id) {
+      throw new RunServiceError("approval_not_found");
+    }
+
+    if (approval.status !== "pending") {
+      throw new RunServiceError("approval_already_resolved");
+    }
+
+    const stepRuns = await storeRead(() =>
+      deps.persistence.listStepRuns(id),
+    );
+
+    if (!stepRuns.some((step) => step.id === approval.stepRunId)) {
+      throw new RunServiceError("approval_not_found");
+    }
 
     if (run.status !== "waiting_approval") {
       throw new RunServiceError("run_state_conflict");

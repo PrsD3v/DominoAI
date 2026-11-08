@@ -33,7 +33,7 @@ engine, not a chat UI.
 - One trusted operator on their own machine, in their own trust domain.
 - Not internet-facing, no accounts, single-user, no multi-tenancy.
 - The workspace allowlist and containment derive from registered projects and
-  constrain filesystem paths Domino controls. The runtime edits real files.
+  constrain filesystem paths Domino controls.
 - Containment has two moments: registration validates and canonicalizes the root,
   and every runtime step re-checks that its resolved path, including symlink
   targets, stays inside that canonical root before executing.
@@ -52,94 +52,32 @@ engine, not a chat UI.
 
 ## Features
 
-Build order, MVP only. Headline work: the Reasonix ACP adapter plus the
-runtime-independent workflow engine. Status reflects the checkboxes in
-`blueprint/build-plan.md`.
+Build order, MVP only. Status reflects the checkboxes in
+`blueprint/build-plan.md`. Headline work: the Reasonix ACP adapter plus the
+runtime-independent workflow engine.
 
-1. **Runtime contracts and adapter test harness** - implemented: runtime-independent
-   `AgentRuntime`, `Session`, `PromptResult`, and `RuntimeEvent` contracts plus a
-   fake runtime; no Reasonix-specific ACP types and no concrete persistence.
-2. **ACP transport and process lifecycle** - implemented: the Reasonix CLI over
-   stdio with JSON-RPC framing, pending requests, timeouts, and crash or shutdown
-   handling.
-3. **Handshake, capability discovery, session lifecycle** - open, split in two:
-   - **3A Local handshake and session lifecycle** - implemented and locally
-     tested: `initialize`, capability reporting, and idempotent fake session
-     create and close; live create and close are unproven.
-   - **3B Live Reasonix runtime verification - BLOCKED / DEFERRED** - needs a
-     disposable credential and a writable Reasonix home; live `initialize`,
-     `session/new`, and `session/close` stay unproven.
-4. **Prompt execution and event normalization** - implemented: streamed updates
-   become normalized runtime events; stop reasons are preserved.
-5. **Cancel and failure safety** - implemented: a verified cancelled result, and
-   EOF, crash, or timeout ending pending work instead of hanging it.
-6. **Resume, load, and list** - open, split in two:
-   - **6A Resume, load, and list adapter** - implemented: capability-gated
-     `session/resume`, `session/load`, and `session/list`; `load` replays
-     normalized history while `resume` does not; a live `session/list` passes.
-   - **6B Live Reasonix resume and load verification - BLOCKED / DEFERRED** -
-     same live prerequisites as 3B; no live resume or load claim.
-7. **Optional steering** - open, split in two:
-   - **7A Steering discovery and optional capability** - implemented: the
-     advertised method is read from runtime metadata and steering is an optional,
-     capability-gated session operation; denial and failure paths are typed.
-   - **7B Live steering characterization - BLOCKED / DEFERRED** - interrupt
-     versus queue stays unproven pending the same prerequisites.
-8. **Workflow and skill definition model** - implemented: versioned and
-   validated, owned by Domino, importing nothing from an external format yet.
-9. **Workflow engine core** - implemented: the persistence contracts and an
-   in-memory implementation; pause, continue, and cancel are run operations; each
-   step re-checks containment; a run binds an opaque `runtimeProfileId`, never a
-   provider, model, or credential.
-10. **SQLite persistence** - implemented: the same contracts behind SQLite, plus
-    startup reconciliation. Automated tests load persisted active runs as if
-    after a restart and assert they become `interrupted` with their history
-    intact.
-11. **Project registration and configuration** - implemented: registration-time
-    validation and canonicalization of the workspace root, plus selected
-    definition versions. A project may hold an optional opaque default runtime
-    profile reference, validated by 11A.
-11A. **Reasonix provider, model, and credential settings** - open; each stage is
-    a reviewable implementation unit:
-    - **Stage 1 Contracts** - implemented: non-secret `RuntimeProfile`,
-      `CredentialRef`, and write-only `CredentialStore`.
-    - **Stage 2/2.1 Credential file store** - implemented: atomic, locked,
-      symlink-safe writes to `<Reasonix home>/.env`.
-    - **Stage 3 Provider/model catalog** - implemented: read-only metadata from
-      `reasonix doctor --json`; credential presence only, no connection claim.
-    - **Stage 4 Persistence and migration** - implemented: non-secret profile
-      metadata through the persistence interface and SQLite layer.
-    - **Stage 5 Settings API** - implemented: catalog, profile
-      create/list/update, and write-only credential set/remove/status endpoints;
-      typed, non-secret errors.
-    - **Stage 6 Settings screen** - implemented: the initial Settings screen on
-      the Stage 5 API, shadcn/ui defaults, English and Persian RTL, light and
-      dark themes.
-    - **Stage 7 Test Connection** - implemented with a fake runtime and a typed
-      result; the real connection test still depends on 3B and is not claimed.
-    - **Stage 8 Project default-profile integration** - not implemented: set,
-      clear, and validate a project's optional default profile id against
-      persisted profiles.
-    - Feature 11A is not complete while Stage 8 remains open.
-12. **Blueprint compatibility assessment** - not implemented: an evidence-based
-    decision before any import or mapping is assumed.
-13. **Skill delivery proof and central library** - not implemented: instructions
-    reach the agent through a verified ACP path, and the target project tree is
-    unchanged by any permanent Skill install.
-14. **Minimal run dashboard** - not implemented: start against a registered
-    project, watch events, pause or continue, cancel, answer approvals; shadcn/ui
-    defaults, English and Persian RTL, light and dark themes, Zod-validated forms
-    where needed. Folds in the 11A Settings screen without a second credential
-    store.
-15. **Server and approval safety controls** - not implemented: loopback binding,
-    cross-origin mutation rejection, approvals bound to one run and step, and
-    secret redaction in logs, event views, API responses, and the settings flow.
-16. **End-to-end MVP slice** - not implemented: a three-step run with an approval
-    pause against the real runtime, page reload while paused, then completion and
-    a second reload. Page reload only; the restart case belongs to feature 10.
+1. **Runtime contracts and adapter test harness** - implemented: runtime-independent `AgentRuntime`, `Session`, `PromptResult`, and `RuntimeEvent` plus a fake runtime; no ACP-specific types and no concrete persistence.
+2. **ACP transport and process lifecycle** - implemented: Reasonix CLI over stdio with JSON-RPC framing, pending requests, timeouts, and crash or shutdown handling.
+3. **Handshake, capability discovery, session lifecycle** - open. 3A implemented: `initialize`, capability reporting, and idempotent fake session create and close. 3B BLOCKED / DEFERRED: live `initialize`, `session/new`, and `session/close` are unproven without a disposable credential and writable Reasonix home.
+4. **Prompt execution and event normalization** - implemented: streamed updates become normalized runtime events; stop reasons are preserved.
+5. **Cancel and failure safety** - implemented: a verified cancelled result, and EOF, crash, or timeout ending pending work instead of hanging it.
+6. **Resume, load, and list** - open. 6A implemented: capability-gated `session/resume`, `session/load`, and `session/list`; `load` replays normalized history while `resume` does not; a live `session/list` passes. 6B BLOCKED / DEFERRED: no live resume or load claim.
+7. **Optional steering** - open. 7A implemented: the advertised method comes from runtime metadata, steering is capability-gated, and denial and failure paths are typed. 7B BLOCKED / DEFERRED: interrupt versus queue is unproven.
+8. **Workflow and skill definition model** - implemented: versioned and validated, owned by Domino, importing nothing from an external format yet.
+9. **Workflow engine core** - implemented: persistence contracts and an in-memory implementation; pause, continue, and cancel are run operations; each step re-checks containment; a run binds an opaque `runtimeProfileId`, never a provider, model, or credential.
+10. **SQLite persistence** - implemented: the same contracts behind SQLite plus startup reconciliation; tests load persisted active runs as if after a restart and assert `interrupted` with history intact.
+11. **Project registration and configuration** - implemented: registration-time validation and canonicalization of the workspace root, selected definition versions, and an optional opaque default runtime profile reference validated by 11A.
+11A. **Reasonix provider, model, and credential settings** - open. Stages 1-3 implemented: non-secret `RuntimeProfile`, `CredentialRef`, write-only `CredentialStore`, atomic locked symlink-safe `<Reasonix home>/.env` writes, and a metadata-only catalog from `reasonix doctor --json`. Stage 4 implemented: profile persistence and migration. Stage 5 implemented: catalog, profile, and write-only credential endpoints with typed non-secret errors. Stage 6 implemented: Settings screen on shadcn/ui defaults, English and Persian RTL. Stage 7 implemented with a fake runtime; the real connection test depends on 3B. Stage 8 implemented: opaque project default-profile set, clear, and validation. 11A stays open only for the live connection proof.
+12. **Blueprint compatibility assessment** - implemented: an evidence-based decision in `docs/blueprint-compatibility.md`; Blueprint definitions are not consumed as-is and no importer is built, though skill text may be copied manually into a SkillVersion with review.
+13. **Skill delivery proof and central library** - open. 13A implemented: published skill versions resolve from the central library, compose in declared order, and travel over `session/prompt` without writing into the target project; missing or duplicate versions fail before a session; the run pins delivered ids. 13B BLOCKED / DEFERRED: no live claim that delivered instructions influence the model.
+14. **Minimal run dashboard** - implemented. 14A: run orchestration bound to a registered project and default profile, Projects and definition read APIs, run list/detail/control APIs, approval waiting and answering, and SSE with snapshot-on-reconnect; rejecting an approval cancels the run. 14B: dashboard shell plus Projects, Workflows, run list, run detail, live events, pause/continue, cancel, and approvals, with Settings folded in; English and Persian RTL, light and dark themes, accessible controls.
+15. **Server and approval safety controls** - open: active spec written (eight steps), no implementation. Loopback binding, cross-origin mutation rejection, approvals bound to one run and one step, and secret redaction in logs, event views, API responses, and settings.
+16. **End-to-end MVP slice** - not implemented: a three-step run with an approval pause against the real runtime, page reload while paused, then completion and a second reload. Page reload only; the restart case belongs to feature 10.
 
 Every ACP capability claim needs repeatable test evidence from the installed
-Reasonix version; `resume` and `load` stay distinct.
+Reasonix version; `resume` and `load` stay distinct. The live scenarios (3B, 6B,
+7B, 13B, and the real 11A connection test) remain blocked by the same missing
+disposable credential and writable Reasonix home.
 
 ### Deferred, explicitly not MVP
 
@@ -239,19 +177,18 @@ proposed here. The engine talks only to the persistence interface, never SQLite.
 - **Next.js 16 App Router, React 19, TypeScript strict** - the application and its
   server routes
 - **Tailwind CSS v4** - CSS-first theme with light and dark tokens, no config file
-- **shadcn/ui** - component library; default components are used as-is and never
-  edited under `components/ui/`
+- **shadcn/ui** - installed; default components are used as-is and never edited
+  under `components/ui/`
 - **Zod** - schema validation when a form needs it; React Hook Form only when
-  complexity justifies it
+  complexity justifies it; neither is installed yet
 - **Localization** - typed English and Persian catalogs, English default, Persian
   RTL, cookie switcher
 - **Node.js 24, npm** - runtime and package manager
 - **Reasonix CLI v2.54.0 over ACP** - the first agent runtime, reached over stdio
 - **Model provider** - provider-agnostic; `deepseek/deepseek-flash` in development
 - **Credential handling** - existing Reasonix providers/models; a write-only
-  `<Reasonix home>/.env` store; no Domino credential store in the MVP and no new
-  dependency
-- **Vitest** - test runner, already configured
+  `<Reasonix home>/.env` store; no Domino credential store and no new dependency
+- **Vitest** - test runner
 - **SQLite** - initial storage, behind an application-owned persistence interface
 - **MIT license** - `LICENSE` at the repository root
 - **ACP contract record** - `docs/reasonix-acp-contract.md`, with verified and
@@ -265,9 +202,8 @@ their own runtime and API key, so inference and compute costs are theirs.
 
 Constraints that follow: no feature may require a Domino-hosted account, server,
 or network call, and no user code, prompt content, API key, or transcript may
-leave the machine through Domino. Optional sustainability ideas (sponsorships,
-paid support, an optional commercial hosted offering) are additive and
-uncommitted.
+leave the machine through Domino. Sustainability ideas (sponsorships, paid
+support, an optional commercial hosted offering) are additive and uncommitted.
 
 ## UI/UX
 
@@ -282,8 +218,8 @@ decided.
 - Skill and workflow editor - versioned definitions and validation errors
 - Settings - runtime binary path, workspace allowlist, existing Reasonix provider
   and model selection, a write-only API key field, credential status, every
-  profile sharing the same `api_key_env`, and a real connection test; feature 14
-  folds this screen into the dashboard
+  profile sharing the same `api_key_env`, and a real connection test; folded into
+  the dashboard by feature 14 without a second credential store
 
 Every stop, cancel, and approval action names the run and step it affects. A
 cancelled or interrupted run is visually distinct from a completed one,
@@ -312,8 +248,8 @@ because the audience is developers.
 
 ### Theme and references
 
-- Both light and dark mode are supported; the current shell follows the OS scheme
-  through `prefers-color-scheme`.
+- Both light and dark mode are supported through the existing semantic tokens and
+  `prefers-color-scheme`; no theme provider or `.dark` toggle is added.
 - UI reference images may arrive later. Store them in `blueprint/reference/` and
   build from the image rather than from prose.
 
@@ -338,12 +274,13 @@ with state and history preserved and no implied continuation.
 - **Target** - the developer's own machine, next to the project it operates on
 - **App type** - Node server (Next.js server runtime); static export cannot run
   the ACP adapter or stream events
-- **Build / start** - `npm run build`, `npm run start`
+- **Build / start** - `npm run build`, `npm run start`; loopback binding arrives
+  with feature 15
 - **Env vars, by name** - runtime binary path, workspace allowlist, storage path,
   provider variable names; values are never committed
 - **Storage** - one local SQLite file; no database server
 - **Workers** - the adapter child process; no separate worker
-- **Health path** - > TODO, decided with the event transport
+- **Health path** - > TODO; SSE is chosen, the endpoint is not
 - **Domain** - none; localhost, loopback only by default
 - **Packaging** - > TODO (npm package, npx, or clone and run)
 
@@ -366,21 +303,35 @@ outside the MVP.
 
 ## Open decisions
 
-Each is assigned to the feature that settles it.
+Still open, each assigned to the feature that settles it.
 
-1. How skill content reaches the runtime without a permanent project install -
-   feature 13
-2. Dashboard event transport and reconnect behavior, SSE suggested - feature 14
-3. Whether Blueprint definitions are consumed as-is or mapped - feature 12
-4. Packaging and install path - post-MVP, with release automation
-5. Whether the theme follows the OS only or exposes an explicit light/dark toggle
-   - feature 14
-6. Credential file path, permissions, and atomic replacement on Windows and macOS
-   - feature 11A
-7. Connection test cost, timeout, and error categories - feature 11A
+1. Packaging and install path - post-MVP, with release automation.
+2. Credential file path, permissions, and atomic replacement on Windows and macOS
+   - 11A; not claimed until tested on those systems.
+3. Connection test cost, timeout, and error categories - 11A; live proof is
+   blocked by 3B.
+4. Health check path - SSE is chosen, the endpoint is not.
+
+Resolved by implementation: skill content reaches the runtime inline over
+`session/prompt` (13A); the dashboard uses SSE with a snapshot on reconnect
+(14A); Blueprint definitions are not imported as-is (12); the theme follows
+`prefers-color-scheme` with no toggle (14B).
 
 ## Open questions
 
-- `project-plan.md` section 3 "Delivery status" is stale: it calls 11A Stage 4
-  blocked and the API, Settings UI, and connection test open, while the build plan
-  records Stages 4 to 7 implemented. Fix the plan, then re-run `/overview`.
+> Plan contradictions found while regenerating this overview. Resolve them in the
+> plans, then re-run `/overview`. Delete this section when empty.
+
+- `project-plan.md` section 3 "Delivery status" is stale: it says 11A Stage 4 is
+  blocked until Features 9 and 10 exist and that the API, Settings UI, real
+  connection test, and project default-profile integration remain open, while
+  `build-plan.md` records Stages 4 to 8 implemented.
+- `project-plan.md` section 5 is stale: shadcn/ui is listed as "planned in 11A
+  Stage 6" though it is installed, and the persistence row says the driver,
+  migrations, and schema are undecided though feature 10 settled them.
+- `project-plan.md` section 10 still lists as open the event transport and theme
+  decisions that features 14A and 14B settled, and describes skill delivery as
+  pending feature 13 though 13A chose inline ACP prompt delivery.
+- `build-plan.md` says "Feature 11A is not complete while Stages 5 to 8 remain
+  open"; all four are now checked, so that sentence is obsolete. 11A is still
+  legitimately open for the live connection proof that depends on 3B.

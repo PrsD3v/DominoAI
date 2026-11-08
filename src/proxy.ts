@@ -1,12 +1,32 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { defaultLocale, isLocale, localeCookieName } from "./i18n/config";
+import { evaluateRequest } from "./lib/safety/origin";
 
 const oneYearInSeconds = 60 * 60 * 24 * 365;
+
+const ORIGIN_REJECTED = {
+  error: {
+    code: "origin_not_allowed",
+    message: "Cross-origin request rejected.",
+  },
+} as const;
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/api" || pathname.startsWith("/api/")) {
+    const decision = evaluateRequest({
+      method: request.method,
+      host: request.headers.get("host"),
+      origin: request.headers.get("origin"),
+      secFetchSite: request.headers.get("sec-fetch-site"),
+      requestOrigin: request.nextUrl.origin,
+    });
+
+    if (!decision.allowed) {
+      return NextResponse.json(ORIGIN_REJECTED, { status: 403 });
+    }
+
     return NextResponse.next();
   }
 

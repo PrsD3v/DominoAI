@@ -888,3 +888,27 @@ type from the `Badge` component's own props instead of redeclaring it.
 **Why it matters:** Spec step 1's done-when asks for "control availability for each run status", but `control availability` (`screen.test.ts:329-341`) asserts eight of the thirty-two status-by-predicate cells: `canPause` for `running`/`paused`, `canContinue` for `paused`/`running`, `canCancel` for `waiting_approval`/`completed`, and `canAnswerApproval` for `waiting_approval`/`paused`. `pending`, `failed`, `cancelled`, and `interrupted` are never passed to any predicate, so a wrong branch — for example allowing cancel on `failed` or pause on `pending` — would leave the suite green while the run detail offered controls the server refuses.
 **Suggested fix:** Drive the block from a table over every `WorkflowRunStatus` with the four expected booleans per row.
 **Resolution:** Open.
+
+### F-51 [P3] open - `/api` paths containing a dot skip the host and origin guard
+
+**File:** src/proxy.ts:59
+**Found:** 2026-11-08 by /audit independent (scope: current; lens: security)
+**Why it matters:** The proxy `matcher` is `/((?!_next|favicon.ico|.*\..*).*)`, whose negative lookahead drops every path containing a dot, so the new `evaluateRequest` guard (`proxy.ts:17-31`) never runs for an `/api` URL that carries one: `POST /api/runs/run.1/cancel` reaches the route handler with its `Host` and `Origin` unchecked, while the approved contract states the rule applies to "all `/api` paths". No mutation is reachable through the hole today, because every id in an `/api` path is a server-generated `randomUUID()` value (`src/lib/runs/runtime.ts:85`, `src/lib/projects/registration.ts:142`, `src/lib/settings/service.ts:293`) and contains no dot, so the unguarded request resolves to a typed 404. The gap becomes a real cross-origin mutation path as soon as a route segment or an identifier format can contain a dot, and it is invisible to the tests because they call `proxy()` directly instead of going through the matcher.
+**Suggested fix:** Guard `/api` explicitly instead of inheriting the locale matcher's dot rule: exclude `api` from the file-extension part of `config.matcher`, or call `evaluateRequest` from `handleRunRequest` and `handleSettingsRequest` where the headers and the request URL are available. Add a proxy test with a dot-containing `/api` path so the matcher stays honest.
+**Resolution:** Open.
+
+### F-52 [P3] open - The run error body redaction is never exercised by a test
+
+**File:** src/lib/runs/http.ts:41
+**Found:** 2026-11-08 by /audit independent (scope: current; lens: tests)
+**Why it matters:** `runErrorResponse` now masks `error.message` and every `error.fields[].message` (`http.ts:41-52`), but `src/lib/runs/http.test.ts` exercises only `handleRunRequest`'s logging, and no other test in the project references `runErrorResponse`. If the redaction were dropped, or applied to `code` instead of `message`, the suite would stay green while a typed run failure echoed a secret to the dashboard. The settings twin has exactly the missing assertion (`src/lib/settings/http.test.ts:30-42`), so the asymmetry is an oversight rather than a deliberate choice.
+**Suggested fix:** Beside the logging test, build a `RunServiceError` whose `message` and `fields[].message` carry a secret-shaped value, render it through `runErrorResponse`, and assert the body reads `[redacted]` while `code` and the status are unchanged.
+**Resolution:** Open.
+
+### F-53 [P3] open - Bearer redaction rewrites the scheme word as well as its value
+
+**File:** src/lib/safety/redaction.ts:20
+**Found:** 2026-11-08 by /audit independent (scope: current; lens: quality)
+**Why it matters:** `.replace(BEARER, \`Bearer ${REDACTED}\`)` substitutes a literal string, so a lowercase header in an agent transcript is rewritten: `authorization: bearer abcdef123456` comes back as `authorization: Bearer [redacted]`. The contract says redaction "replaces only the secret-shaped value with `[redacted]`, never the key or surrounding prose", and this changes the case of the matched keyword. The existing test only feeds an already-capitalized `Bearer`, so the behavior is both unintended and unobserved.
+**Suggested fix:** Capture the scheme and its whitespace, for example `/\b(Bearer)(\s+)[A-Za-z0-9._~+/=-]{8,}/gi` replaced with `$1$2[redacted]`, and add a lowercase-input case to `src/lib/safety/redaction.test.ts`.
+**Resolution:** Open.

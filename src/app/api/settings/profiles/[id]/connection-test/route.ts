@@ -1,4 +1,7 @@
-import { handleSettingsRequest } from "../../../../../../lib/settings/http";
+import {
+  handleSettingsRequest,
+  settingsJsonResponse,
+} from "../../../../../../lib/settings/http";
 import { getSettingsService } from "../../../../../../lib/settings/runtime";
 import type { SettingsService } from "../../../../../../lib/settings/service";
 
@@ -7,7 +10,7 @@ export async function handleTestConnection(
   id: string,
   service: SettingsService,
 ): Promise<Response> {
-  return Response.json({ result: await service.testConnection(id) });
+  return settingsJsonResponse({ result: await service.testConnection(id) });
 }
 
 interface RouteContext {

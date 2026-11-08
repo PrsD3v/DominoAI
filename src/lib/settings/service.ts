@@ -30,6 +30,7 @@ const MESSAGES: Record<SettingsErrorCode, string> = {
   invalid_request: "The settings request is invalid.",
   invalid_json: "The request body must be a JSON object.",
   unsupported_media_type: "The request body must be JSON.",
+  origin_not_allowed: "The request came from an unapproved origin.",
   invalid_secret: "The credential format is invalid.",
   profile_not_found: "The runtime profile was not found.",
   project_not_found: "The project was not found.",

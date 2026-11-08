@@ -7,6 +7,7 @@ export const RUN_ERROR_CODES = [
   "invalid_request",
   "invalid_json",
   "unsupported_media_type",
+  "origin_not_allowed",
   "project_not_found",
   "workflow_version_not_found",
   "skill_version_not_found",

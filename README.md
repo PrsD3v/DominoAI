@@ -51,6 +51,10 @@ npm run dev
 Open <http://localhost:3000>. English is the default language; Persian is one
 click away and the choice is kept across reloads.
 
+The development and production servers bind to `127.0.0.1` by default. Domino is
+local-first and does not support hosted or LAN access. An explicit CLI override,
+such as `npm run start -- -H 0.0.0.0`, is possible but unsupported.
+
 ## Commands
 
 | Command | Purpose |

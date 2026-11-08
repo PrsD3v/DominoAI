@@ -10,6 +10,7 @@ export const SETTINGS_ERROR_CODES = [
   "invalid_request",
   "invalid_json",
   "unsupported_media_type",
+  "origin_not_allowed",
   "invalid_secret",
   "profile_not_found",
   "project_not_found",

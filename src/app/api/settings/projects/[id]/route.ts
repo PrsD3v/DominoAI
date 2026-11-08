@@ -3,6 +3,7 @@ import {
   handleSettingsRequest,
   readJsonObject,
   requireJsonContentType,
+  settingsJsonResponse,
 } from "../../../../../lib/settings/http";
 import { getSettingsService } from "../../../../../lib/settings/runtime";
 import type { SettingsService } from "../../../../../lib/settings/service";
@@ -12,7 +13,7 @@ export async function handleGetProjectDefaultProfile(
   projectId: string,
   service: SettingsService,
 ): Promise<Response> {
-  return Response.json(await service.getProjectDefaultProfile(projectId));
+  return settingsJsonResponse(await service.getProjectDefaultProfile(projectId));
 }
 
 export async function handleUpdateProjectDefaultProfile(
@@ -22,7 +23,7 @@ export async function handleUpdateProjectDefaultProfile(
 ): Promise<Response> {
   requireJsonContentType(request);
   const body = await readJsonObject(request);
-  return Response.json(
+  return settingsJsonResponse(
     await service.updateProjectDefaultProfile(projectId, body),
   );
 }

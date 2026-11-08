@@ -3,6 +3,7 @@ import {
   handleSettingsRequest,
   readJsonObject,
   requireJsonContentType,
+  settingsJsonResponse,
 } from "../../../../../../lib/settings/http";
 import { getSettingsService } from "../../../../../../lib/settings/runtime";
 import type { SettingsService } from "../../../../../../lib/settings/service";
@@ -12,7 +13,7 @@ export async function handleGetCredentialStatus(
   id: string,
   service: SettingsService,
 ): Promise<Response> {
-  return Response.json({ status: await service.getCredentialStatus(id) });
+  return settingsJsonResponse({ status: await service.getCredentialStatus(id) });
 }
 
 export async function handleSetCredential(
@@ -23,7 +24,7 @@ export async function handleSetCredential(
   requireJsonContentType(request);
   const body = await readJsonObject(request);
   const status = await service.setCredential(id, body);
-  return Response.json({ status });
+  return settingsJsonResponse({ status });
 }
 
 export async function handleRemoveCredential(
@@ -31,7 +32,7 @@ export async function handleRemoveCredential(
   id: string,
   service: SettingsService,
 ): Promise<Response> {
-  return Response.json({ status: await service.removeCredential(id) });
+  return settingsJsonResponse({ status: await service.removeCredential(id) });
 }
 
 interface RouteContext {

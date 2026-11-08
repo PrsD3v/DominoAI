@@ -301,6 +301,22 @@ describe("workflow engine runner", () => {
     expect(testRuntime.counters.runtimeClose).toBe(0);
   });
 
+  it("redacts secret-shaped runtime event text before persistence", async () => {
+    const testRuntime = createTestRuntime([
+      { deltas: ["sk-test-secret-value"] },
+    ]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+
+    const { runId, completion } = await engine.startRun(
+      workflowPlan([{ key: "one", prompt: "Do one" }]),
+      runOptions(),
+    );
+    await completion;
+
+    const events = await persistence.listRuntimeEvents(runId);
+    expect(events.map((event) => event.event.text)).toEqual(["[redacted]"]);
+  });
+
   it("rejects an invalid plan before creating a run", async () => {
     const testRuntime = createTestRuntime();
     const { engine, persistence } = createEngine(testRuntime.runtime);
@@ -983,6 +999,56 @@ describe("workflow engine approvals", () => {
       "step_completed",
       "run_completed",
     ]);
+  });
+
+  it("refuses an approval that belongs to another run", async () => {
+    const testRuntime = createTestRuntime([{ deltas: ["done"] }]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+    const { runId } = await engine.startRun(
+      workflowPlan([
+        {
+          key: "gated",
+          prompt: "Ship",
+          approval: { key: "release", message: "Approve?" },
+        },
+      ]),
+      runOptions(),
+    );
+    const approval = await waitForPendingApproval(persistence, runId);
+
+    await persistence.updateApproval({
+      ...approval,
+      runId: "another-run",
+    });
+
+    await expect(
+      engine.answerApproval(runId, approval.id, "approve"),
+    ).rejects.toMatchObject({ reason: "not_found" });
+  });
+
+  it("refuses an approval whose step does not match the waiting step", async () => {
+    const testRuntime = createTestRuntime([{ deltas: ["done"] }]);
+    const { engine, persistence } = createEngine(testRuntime.runtime);
+    const { runId } = await engine.startRun(
+      workflowPlan([
+        {
+          key: "gated",
+          prompt: "Ship",
+          approval: { key: "release", message: "Approve?" },
+        },
+      ]),
+      runOptions(),
+    );
+    const approval = await waitForPendingApproval(persistence, runId);
+
+    await persistence.updateApproval({
+      ...approval,
+      stepRunId: "another-step",
+    });
+
+    await expect(
+      engine.answerApproval(runId, approval.id, "approve"),
+    ).rejects.toMatchObject({ reason: "run_not_waiting" });
   });
 
   it("rejects an approval by cancelling the run and leaving the step pending", async () => {

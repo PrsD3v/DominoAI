@@ -85,6 +85,7 @@ const en = {
     invalid_request: "Some fields are invalid.",
     invalid_json: "The request body could not be read.",
     unsupported_media_type: "The request was not sent as JSON.",
+    origin_not_allowed: "The request came from an unapproved origin.",
     project_not_found: "That project no longer exists.",
     workflow_version_not_found: "That workflow version no longer exists.",
     skill_version_not_found: "A selected skill version no longer exists.",
@@ -376,6 +377,7 @@ const en = {
       invalid_request: "Some settings fields are invalid.",
       invalid_json: "The settings request body could not be read.",
       unsupported_media_type: "The settings request was not sent as JSON.",
+      origin_not_allowed: "The request came from an unapproved origin.",
       invalid_secret:
         "The key format is not accepted. Use a single token with no spaces or quotes.",
       profile_not_found: "That runtime profile no longer exists.",
@@ -504,6 +506,7 @@ const fa: Messages = {
     invalid_request: "بعضی فیلدها معتبر نیستند.",
     invalid_json: "بدنهٔ درخواست خوانده نشد.",
     unsupported_media_type: "درخواست به‌صورت JSON ارسال نشد.",
+    origin_not_allowed: "درخواست از یک مبدأ تأییدنشده ارسال شد.",
     project_not_found: "آن پروژه دیگر وجود ندارد.",
     workflow_version_not_found: "آن نسخهٔ گردش‌کار دیگر وجود ندارد.",
     skill_version_not_found: "یکی از نسخه‌های Skill انتخاب‌شده دیگر وجود ندارد.",
@@ -794,6 +797,7 @@ const fa: Messages = {
       invalid_request: "بعضی فیلدهای تنظیمات معتبر نیستند.",
       invalid_json: "بدنهٔ درخواست تنظیمات خوانده نشد.",
       unsupported_media_type: "درخواست تنظیمات به‌صورت JSON ارسال نشد.",
+      origin_not_allowed: "درخواست از یک مبدأ تأییدنشده ارسال شد.",
       invalid_secret:
         "قالب کلید پذیرفته نیست. یک توکن بدون فاصله یا کوتیشن وارد کن.",
       profile_not_found: "آن پروفایل Runtime دیگر وجود ندارد.",

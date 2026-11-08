@@ -13,6 +13,7 @@ import type {
 } from "../../types/workflow";
 import { resolveContainedStepPath } from "./containment";
 import { validateExecutionPlan } from "./execution-plan";
+import { redactRuntimeEvent } from "../safety/redaction";
 
 /** Dependencies required to create an engine. */
 export interface CreateWorkflowEngineOptions {
@@ -115,6 +116,8 @@ type ApprovalOutcome = "approved" | "rejected" | "cancelled";
 
 interface PendingApproval {
   readonly approvalId: string;
+  readonly runId: string;
+  readonly stepRunId: string;
   readonly resolve: (outcome: ApprovalOutcome) => void;
 }
 
@@ -367,7 +370,9 @@ class WorkflowEngineImpl implements WorkflowEngine {
 
     if (
       active.pendingApproval === null ||
-      active.pendingApproval.approvalId !== approvalId
+      active.pendingApproval.approvalId !== approvalId ||
+      active.pendingApproval.runId !== runId ||
+      active.pendingApproval.stepRunId !== approval.stepRunId
     ) {
       throw new WorkflowApprovalError("run_not_waiting", approvalId);
     }
@@ -553,7 +558,12 @@ class WorkflowEngineImpl implements WorkflowEngine {
     }
 
     const decision = new Promise<ApprovalOutcome>((resolve) => {
-      active.pendingApproval = { approvalId: approval.id, resolve };
+      active.pendingApproval = {
+        approvalId: approval.id,
+        runId: run.id,
+        stepRunId: stepRun.id,
+        resolve,
+      };
     });
     const current = await this.requireRun(run.id);
     const waitingAt = this.options.now();
@@ -792,7 +802,7 @@ class WorkflowEngineImpl implements WorkflowEngine {
             id: this.options.idFactory(),
             runId: run.id,
             stepRunId: stepRun.id,
-            event,
+            event: redactRuntimeEvent(event),
             recordedAt: this.options.now(),
           });
         },

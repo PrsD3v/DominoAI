@@ -129,6 +129,25 @@ describe("createRunEventStream", () => {
     expect(await stream.tick()).toEqual([]);
   });
 
+  it("redacts secret-shaped values in every frame", async () => {
+    const state = streamState({
+      ...SAMPLE_DETAIL,
+      run: { ...SAMPLE_DETAIL.run, error: "api_key=abcd1234" },
+      events: [eventRecord("event-1", "sk-test-secret-value")],
+    });
+    const stream = createRunEventStream({
+      service: state.service,
+      runId: "run-1",
+    });
+
+    const frames = await stream.start();
+    const joined = frames.join("\n");
+
+    expect(joined).not.toContain("sk-test-secret-value");
+    expect(joined).not.toContain("abcd1234");
+    expect(joined).toContain("[redacted]");
+  });
+
   it("starts a fresh snapshot on every connection", async () => {
     const state = streamState();
 

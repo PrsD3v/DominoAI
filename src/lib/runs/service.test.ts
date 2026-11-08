@@ -302,6 +302,43 @@ describe("run service startRun", () => {
     expect(JSON.stringify(detail)).not.toContain(SECRET);
   });
 
+  it("redacts secret-shaped values in run detail and summaries", async () => {
+    const store = openStore();
+    const { project } = await seedStore(store, {
+      steps: [{ key: "step-1", skillVersionIds: ["skill-version-1"] }],
+    });
+    const factory = runtimeFactory([{ deltas: ["sk-test-secret-value"] }]);
+    const service = createService(store, factory);
+
+    const started = await service.startRun({
+      projectId: project.id,
+      workflowVersionId: "workflow-version-1",
+    });
+    await waitForRun(
+      service,
+      started.run.id,
+      (state) => state.run.status === "completed",
+    );
+
+    const detail = await service.getRun(started.run.id);
+    expect(detail.events[0]?.event.text).toBe("[redacted]");
+    expect(detail.steps[0]?.resultText).toBe("[redacted]");
+
+    const raw = await store.getRun(started.run.id);
+    expect(raw).not.toBeNull();
+    await store.updateRun({
+      ...raw!,
+      status: "failed",
+      error: "api_key=abcd1234",
+    });
+
+    const state = await service.getState(started.run.id);
+    expect(state.run.error).toBe("api_key=[redacted]");
+
+    const runs = await service.listRuns();
+    expect(runs[0]?.error).toBe("api_key=[redacted]");
+  });
+
   it("refuses a second run and closes the rejected runtime", async () => {
     const store = openStore();
     const { project } = await seedStore(store, gatedOptions());
@@ -663,7 +700,91 @@ describe("run service controls", () => {
     expect(factory.sessions()).toBe(2);
   });
 
-  it("rejects an approval answer when the run is not waiting", async () => {
+  it("binds an approval to its run and step", async () => {
+    const store = openStore();
+    const { project } = await seedStore(store, {
+      steps: [
+        {
+          key: "step-1",
+          skillVersionIds: ["skill-version-1"],
+          approvalPointKey: "gate-1",
+        },
+        {
+          key: "step-2",
+          skillVersionIds: ["skill-version-1"],
+          approvalPointKey: "gate-2",
+        },
+      ],
+      approvalPoints: [
+        { key: "gate-1", message: "Approve one?" },
+        { key: "gate-2", message: "Approve two?" },
+      ],
+    });
+    const factory = runtimeFactory([
+      { deltas: ["one"] },
+      { deltas: ["two"] },
+    ]);
+    const foreignApproval = {
+      id: "foreign-approval",
+      runId: "another-run",
+      stepRunId: "another-step",
+      status: "pending" as const,
+      message: "Other",
+      requestedAt: AT,
+    };
+    const persistence = new Proxy(store, {
+      get(target, property) {
+        if (property === "getApproval") {
+          return async (approvalId: string) =>
+            approvalId === foreignApproval.id
+              ? foreignApproval
+              : target.getApproval(approvalId);
+        }
+
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as SqliteWorkflowStore;
+    const service = createService(store, factory, { persistence });
+
+    const started = await service.startRun({
+      projectId: project.id,
+      workflowVersionId: "workflow-version-1",
+    });
+    const waiting = await waitForRun(
+      service,
+      started.run.id,
+      (state) => state.run.status === "waiting_approval",
+    );
+    const approval = waiting.approvals[0];
+
+    expect(approval).toBeDefined();
+
+    await expect(
+      service.answerApproval(started.run.id, foreignApproval.id, {
+        decision: "approve",
+      }),
+    ).rejects.toMatchObject({ code: "approval_not_found" });
+
+    const stepRuns = await store.listStepRuns(started.run.id);
+    const otherStep = stepRuns.find(
+      (step) => step.id !== approval!.stepRunId,
+    );
+
+    expect(otherStep).toBeDefined();
+    await store.updateApproval({
+      ...approval!,
+      stepRunId: otherStep!.id,
+    });
+
+    await expect(
+      service.answerApproval(started.run.id, approval!.id, {
+        decision: "approve",
+      }),
+    ).rejects.toMatchObject({ code: "run_state_conflict" });
+  });
+
+  it("rejects an unknown approval even when the run is not waiting", async () => {
     const store = openStore();
     const { project } = await seedStore(store);
     const service = createService(store, runtimeFactory([{ deltas: ["done"] }]));
@@ -682,7 +803,7 @@ describe("run service controls", () => {
       service.answerApproval(started.run.id, "any-approval", {
         decision: "approve",
       }),
-    ).rejects.toMatchObject({ code: "run_state_conflict" });
+    ).rejects.toMatchObject({ code: "approval_not_found" });
   });
 });
 

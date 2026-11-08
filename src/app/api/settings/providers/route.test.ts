@@ -53,6 +53,22 @@ describe("GET /api/settings/providers", () => {
     await expect(response.json()).resolves.toEqual({ catalog });
   });
 
+  it("redacts secret-shaped catalog values", async () => {
+    const service = serviceWith({
+      loadCatalog: async () => ({
+        ...catalog,
+        providers: [
+          { ...catalog.providers[0]!, models: ["sk-test-secret-value"] },
+        ],
+      }),
+    });
+
+    const response = await handleGetProviders(request(), service);
+    const body = await response.json();
+
+    expect(body.catalog.providers[0].models).toEqual(["[redacted]"]);
+  });
+
   it("maps a catalog failure to a typed 503 without upstream detail", async () => {
     const service = serviceWith({
       loadCatalog: async () => {

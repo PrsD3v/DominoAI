@@ -1,4 +1,5 @@
 import type { RunDetail, RunState } from "../../types/run-api";
+import { redactValue } from "../safety/redaction";
 import type { RunService } from "./service";
 
 /** Poll interval for the SSE bridge. */
@@ -29,7 +30,7 @@ export interface RunEventStream {
 }
 
 function frame(event: string, data: unknown): string {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  return `event: ${event}\ndata: ${JSON.stringify(redactValue(data))}\n\n`;
 }
 
 function fingerprint(state: RunState): string {

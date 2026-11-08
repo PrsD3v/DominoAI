@@ -1,10 +1,13 @@
 import type { RunErrorBody, RunErrorCode } from "../../types/run-api";
+import { logServerError } from "../safety/log";
+import { redactText } from "../safety/redaction";
 import { RunServiceError } from "./service";
 
 const STATUS_BY_CODE: Record<RunErrorCode, number> = {
   invalid_request: 400,
   invalid_json: 400,
   unsupported_media_type: 415,
+  origin_not_allowed: 403,
   project_not_found: 404,
   workflow_version_not_found: 404,
   skill_version_not_found: 404,
@@ -35,8 +38,15 @@ export function runErrorResponse(error: RunServiceError): Response {
   const body: RunErrorBody = {
     error: {
       code: error.code,
-      message: error.message,
-      ...(error.fields === undefined ? {} : { fields: error.fields }),
+      message: redactText(error.message),
+      ...(error.fields === undefined
+        ? {}
+        : {
+            fields: error.fields.map((field) => ({
+              field: field.field,
+              message: redactText(field.message),
+            })),
+          }),
     },
   };
 
@@ -57,6 +67,7 @@ export async function handleRunRequest(
       return runErrorResponse(error);
     }
 
+    logServerError("runs", error);
     throw error;
   }
 }

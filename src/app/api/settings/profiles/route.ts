@@ -3,6 +3,7 @@ import {
   handleSettingsRequest,
   readJsonObject,
   requireJsonContentType,
+  settingsJsonResponse,
 } from "../../../../lib/settings/http";
 import { getSettingsService } from "../../../../lib/settings/runtime";
 import type { SettingsService } from "../../../../lib/settings/service";
@@ -11,7 +12,7 @@ export async function handleListProfiles(
   _request: Request,
   service: SettingsService,
 ): Promise<Response> {
-  return Response.json({ profiles: await service.listProfiles() });
+  return settingsJsonResponse({ profiles: await service.listProfiles() });
 }
 
 export async function handleCreateProfile(
@@ -21,7 +22,7 @@ export async function handleCreateProfile(
   requireJsonContentType(request);
   const body = await readJsonObject(request);
   const profile = await service.createProfile(body);
-  return Response.json({ profile }, { status: 201 });
+  return settingsJsonResponse({ profile }, { status: 201 });
 }
 
 export async function GET(request: Request): Promise<Response> {

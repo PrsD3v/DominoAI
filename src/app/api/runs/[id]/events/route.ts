@@ -2,6 +2,7 @@ import { connection } from "next/server";
 import { handleRunRequest } from "../../../../../lib/runs/http";
 import { getRunService } from "../../../../../lib/runs/runtime";
 import type { RunService } from "../../../../../lib/runs/service";
+import { logServerError } from "../../../../../lib/safety/log";
 import {
   abortableSleep,
   createRunEventStream,
@@ -53,8 +54,9 @@ export async function handleRunEvents(
 
           enqueue(await stream.tick());
         }
-      } catch {
+      } catch (error) {
         // A read failure ends this connection. A reconnect starts a new snapshot.
+        logServerError("run-events", error);
       } finally {
         closed = true;
 

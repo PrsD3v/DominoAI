@@ -3,11 +3,14 @@ import {
   type SettingsErrorCode,
   type SettingsErrorField,
 } from "./service";
+import { redactValue } from "../safety/redaction";
+import { logServerError } from "../safety/log";
 
 const STATUS_BY_CODE: Record<SettingsErrorCode, number> = {
   invalid_request: 400,
   invalid_json: 400,
   unsupported_media_type: 415,
+  origin_not_allowed: 403,
   invalid_secret: 400,
   profile_not_found: 404,
   project_not_found: 404,
@@ -27,6 +30,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Return a settings JSON body after applying the shared redaction rule. */
+export function settingsJsonResponse(
+  body: unknown,
+  init?: ResponseInit,
+): Response {
+  return Response.json(redactValue(body), init);
+}
+
 /** Map a typed settings failure to a status and a non-secret JSON body. */
 export function settingsErrorResponse(error: SettingsError): Response {
   const body: {
@@ -43,7 +54,7 @@ export function settingsErrorResponse(error: SettingsError): Response {
     body.error.fields = error.fields;
   }
 
-  return Response.json(body, { status: STATUS_BY_CODE[error.code] });
+  return settingsJsonResponse(body, { status: STATUS_BY_CODE[error.code] });
 }
 
 /**
@@ -60,6 +71,7 @@ export async function handleSettingsRequest(
       return settingsErrorResponse(error);
     }
 
+    logServerError("settings", error);
     throw error;
   }
 }
